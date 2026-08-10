@@ -1,0 +1,79 @@
+import type { Address, Hash, Hex } from "viem";
+import { decodeActivity } from "../blockchain/activityDecoder.js";
+import type { Repositories } from "../database/repositories/index.js";
+import type { WatchedWallet } from "../database/repositories/wallets.js";
+import { logger } from "../config/logger.js";
+import { normalizeAddress } from "../utils/address.js";
+import type { NotificationService } from "./notifications.js";
+
+export interface ProcessableTransaction {
+  hash: Hash;
+  from: Address;
+  to: Address | null;
+  value: bigint;
+  input: Hex;
+}
+
+export interface ProcessableBlock {
+  number: bigint;
+  timestamp: bigint;
+  transactions: readonly (ProcessableTransaction | Hash)[];
+}
+
+export function isOutgoingTransaction(
+  transaction: Pick<ProcessableTransaction, "from">,
+  watchedAddresses: ReadonlySet<string>,
+): boolean {
+  return watchedAddresses.has(transaction.from.toLowerCase());
+}
+
+export async function processBlock(
+  chainId: number,
+  block: ProcessableBlock,
+  watchedWallets: WatchedWallet[],
+  repositories: Repositories,
+  notifications: NotificationService,
+): Promise<void> {
+  const watchedByAddress = new Map(
+    watchedWallets.map((wallet) => [wallet.address.toLowerCase(), wallet]),
+  );
+  const watchedAddresses = new Set(watchedByAddress.keys());
+
+  for (const item of block.transactions) {
+    if (typeof item === "string") continue;
+    if (!isOutgoingTransaction(item, watchedAddresses)) continue;
+    const wallet = watchedByAddress.get(item.from.toLowerCase());
+    if (!wallet) continue;
+
+    const claimed = await repositories.transactions.claim(chainId, item.hash);
+    if (!claimed) continue;
+
+    const from = normalizeAddress(item.from);
+    const to = item.to ? normalizeAddress(item.to) : null;
+    const decoded = decodeActivity({ to, value: item.value, input: item.input });
+    await repositories.transactions.storeActivity({
+      walletId: wallet.id,
+      chainId,
+      txHash: item.hash,
+      blockNumber: block.number,
+      from,
+      to,
+      value: item.value,
+      timestamp: new Date(Number(block.timestamp) * 1_000),
+      decoded,
+    });
+    const recipients = await repositories.subscriptions.recipientsForWallet(wallet.id);
+    await notifications.send(recipients, {
+      chainId,
+      wallet: from,
+      to,
+      value: item.value,
+      hash: item.hash,
+      decoded,
+    });
+    logger.info(
+      { chainId, blockNumber: block.number.toString(), txHash: item.hash, wallet: from, activityType: decoded.type },
+      "processed outgoing wallet transaction",
+    );
+  }
+}

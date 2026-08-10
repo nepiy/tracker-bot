@@ -1,0 +1,65 @@
+import type { AppEnv } from "../config/env.js";
+import type { ResolvedCollection } from "../types/index.js";
+import { normalizeAddress } from "../utils/address.js";
+import { ExternalServiceError, UserFacingError } from "../utils/errors.js";
+import { resolveChainIdentifier } from "../blockchain/chains.js";
+import { parseOpenSeaUrl } from "./parseOpenSeaUrl.js";
+
+interface OpenSeaContract {
+  address: string;
+  chain: string;
+}
+
+interface OpenSeaCollectionResponse {
+  collection?: string;
+  name?: string;
+  contracts?: OpenSeaContract[];
+}
+
+export async function resolveOpenSeaCollection(
+  url: string,
+  env: AppEnv,
+  fetcher: typeof fetch = fetch,
+): Promise<ResolvedCollection> {
+  const slug = parseOpenSeaUrl(url);
+  const response = await fetcher(
+    `https://api.opensea.io/api/v2/collections/${encodeURIComponent(slug)}`,
+    { headers: { accept: "application/json", "x-api-key": env.OPENSEA_API_KEY } },
+  );
+
+  if (response.status === 404) {
+    throw new UserFacingError("I couldn't find that OpenSea collection.", "COLLECTION_NOT_FOUND");
+  }
+  if (response.status === 429) {
+    throw new ExternalServiceError("OpenSea rate limit reached", "opensea", true);
+  }
+  if (!response.ok) {
+    throw new ExternalServiceError(`OpenSea returned HTTP ${response.status}`, "opensea", response.status >= 500);
+  }
+
+  const data = (await response.json()) as OpenSeaCollectionResponse;
+  if (!data.name || !Array.isArray(data.contracts) || data.contracts.length === 0) {
+    throw new ExternalServiceError("OpenSea returned an incomplete collection response", "opensea", false);
+  }
+
+  for (const contract of data.contracts) {
+    try {
+      const chain = resolveChainIdentifier(contract.chain, env);
+      return {
+        name: data.name,
+        slug: data.collection ?? slug,
+        chain: chain.key,
+        chainId: chain.chainId,
+        contractAddress: normalizeAddress(contract.address),
+      };
+    } catch (error) {
+      if (!(error instanceof UserFacingError && error.code === "UNSUPPORTED_CHAIN")) throw error;
+    }
+  }
+
+  const available = data.contracts.map((contract) => contract.chain).join(", ");
+  throw new UserFacingError(
+    `This collection has no contract on a supported chain. Found: ${available}.`,
+    "UNSUPPORTED_CHAIN",
+  );
+}

@@ -1,0 +1,18 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { CollectionsRepository } from "./collections.js";
+import { SubscriptionsRepository } from "./subscriptions.js";
+import { TransactionsRepository } from "./transactions.js";
+import { UsersRepository } from "./users.js";
+import { WalletsRepository } from "./wallets.js";
+
+export function createRepositories(db: SupabaseClient) {
+  return {
+    users: new UsersRepository(db),
+    collections: new CollectionsRepository(db),
+    wallets: new WalletsRepository(db),
+    subscriptions: new SubscriptionsRepository(db),
+    transactions: new TransactionsRepository(db),
+  };
+}
+
+export type Repositories = ReturnType<typeof createRepositories>;
