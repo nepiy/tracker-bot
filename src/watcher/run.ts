@@ -15,6 +15,6 @@ process.once("SIGTERM", () => controller.abort());
 try {
   await watcher.run(controller.signal);
 } catch (error) {
-  logger.fatal({ error }, "watcher terminated unexpectedly");
+  logger.fatal({ err: error }, "watcher terminated unexpectedly");
   process.exitCode = 1;
 }

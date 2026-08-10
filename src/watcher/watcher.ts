@@ -62,7 +62,7 @@ export class WalletWatcher {
               {
                 attempts: 4,
                 onRetry: (error, attempt) =>
-                  logger.warn({ error, attempt, chainId: chain.chainId, blockNumber: blockNumber.toString() }, "retrying block fetch"),
+                  logger.warn({ err: error, attempt, chainId: chain.chainId, blockNumber: blockNumber.toString() }, "retrying block fetch"),
               },
             );
             await processBlock(
@@ -78,7 +78,7 @@ export class WalletWatcher {
         failureDelayMs = 1_000;
         await delay(this.env.WATCHER_POLL_INTERVAL_MS, signal);
       } catch (error) {
-        logger.error({ error, chainId: chain.chainId, retryInMs: failureDelayMs }, "watcher chain loop failed");
+        logger.error({ err: error, chainId: chain.chainId, retryInMs: failureDelayMs }, "watcher chain loop failed");
         await delay(failureDelayMs, signal);
         failureDelayMs = Math.min(failureDelayMs * 2, 60_000);
       }
