@@ -5,6 +5,7 @@ import { assertDatabaseResult } from "../client.js";
 export interface SubscriptionView {
   id: string;
   collectionId: string;
+  slug: string;
   name: string;
   chain: string;
   chainId: number;
@@ -24,6 +25,7 @@ interface RawSubscription {
   active: boolean;
   collection_id: string;
   collections: {
+    opensea_slug: string;
     name: string;
     chain: string;
     chain_id: number;
@@ -65,7 +67,7 @@ export class SubscriptionsRepository {
     const { data, error } = await this.db
       .from("subscriptions")
       .select(
-        "id,active,collection_id,collections!inner(name,chain,chain_id,contract_address,collection_wallets(relationship,wallets!inner(address)))",
+        "id,active,collection_id,collections!inner(opensea_slug,name,chain,chain_id,contract_address,collection_wallets(relationship,wallets!inner(address)))",
       )
       .eq("user_id", userId)
       .eq("active", true)
@@ -78,6 +80,7 @@ export class SubscriptionsRepository {
       return {
         id: row.id,
         collectionId: row.collection_id,
+        slug: row.collections.opensea_slug,
         name: row.collections.name,
         chain: row.collections.chain,
         chainId: row.collections.chain_id,

@@ -193,12 +193,15 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 
 ## Telegram commands
 
-- `/start` and `/help`: setup and command help
-- `/track <OpenSea URL>`: analyze and subscribe
+- `/start`: open the inline-button dashboard
+- `/help`: setup and command help
+- `/track <OpenSea URL>`: analyze and subscribe; `/track` by itself opens an OpenSea-link input prompt
 - Paste an OpenSea collection URL directly: same behavior as `/track`
-- `/list`: active subscriptions for the current Telegram user
-- `/stop`: inline buttons that deactivate only that user's subscription
-- `/activity`: recent stored outgoing activity for one active collection
+- `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
+- `/stop`: inline collection picker that deactivates only that user's subscription
+- `/activity`: interactive collection picker with All, Sends, Swaps, and Bridges filters
+
+The dashboard keeps common actions in inline buttons: add a collection, view or refresh tracked collections, inspect recent activity, stop tracking, and return to the main menu. The “Add collection” button uses Telegram's reply input while the same strict OpenSea URL validation remains in place.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 
@@ -234,7 +237,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 - Polling is used for predictable recovery across RPC providers. A persisted per-chain cursor resumes after restarts, and RPC calls use exponential backoff.
 - Only top-level transactions initiated by the watched address alert. An incoming transaction, including one that transfers tokens to the watched wallet, is ignored.
-- Native transfers, common ERC-20 and NFT transfer selectors, several common swap selectors, and known bridge selectors are categorized. Unknown calldata is safely labeled `Contract interaction`.
+- Native transfers, common ERC-20 and NFT transfer selectors, common V2/V3/aggregator swap selectors, and bridge deposit/withdrawal selectors are categorized. The activity dashboard counts and filters sends, swaps, and bridges separately. Unknown calldata is safely labeled `Contract interaction`.
 - Internal transfers emitted by a contract call are not fully decoded yet. Receipt/log decoding and protocol-specific swap/bridge registries are the next enrichment layer.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.

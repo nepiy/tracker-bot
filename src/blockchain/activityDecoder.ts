@@ -15,19 +15,36 @@ const erc721TransferAbi = parseAbi([
   "function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)",
 ]);
 
-const SWAP_SELECTORS = new Set([
-  "0x38ed1739", // swapExactTokensForTokens
-  "0x18cbafe5", // swapExactTokensForETH
-  "0x7ff36ab5", // swapExactETHForTokens
-  "0x04e45aaf", // Uniswap V3 exactInputSingle
-  "0xb858183f", // Uniswap V3 exactInput
-  "0x3593564c", // Uniswap Universal Router execute
+const SWAP_SELECTORS = new Map([
+  ["0x38ed1739", "Exact-token swap"],
+  ["0x8803dbee", "Token-for-exact-token swap"],
+  ["0x18cbafe5", "Token-to-native swap"],
+  ["0x4a25d94a", "Token-for-exact-native swap"],
+  ["0x7ff36ab5", "Native-to-token swap"],
+  ["0xfb3bdb41", "Native-for-exact-token swap"],
+  ["0x5c11d795", "Fee-on-transfer token swap"],
+  ["0xb6f9de95", "Fee-on-transfer native swap"],
+  ["0x791ac947", "Fee-on-transfer token-to-native swap"],
+  ["0x04e45aaf", "Exact-input single swap"],
+  ["0x414bf389", "Exact-input single swap"],
+  ["0xb858183f", "Exact-input swap"],
+  ["0xc04b8d59", "Exact-input swap"],
+  ["0x3593564c", "Universal router swap"],
+  ["0x415565b0", "Aggregated token swap"],
+  ["0xd9627aa4", "Router token swap"],
+  ["0x12aa3caf", "Aggregated swap"],
 ]);
 
-const BRIDGE_SELECTORS = new Set([
-  "0xe9e05c42", // Optimism depositTransaction
-  "0x8340f549", // common bridge deposit
-  "0x7b3a3c8b", // common bridge outbound transfer
+const BRIDGE_SELECTORS = new Map([
+  ["0xe9e05c42", "Bridge deposit"],
+  ["0xb1a1a882", "Native bridge deposit"],
+  ["0x9a2ac6d5", "Native bridge deposit"],
+  ["0x58a997f6", "Token bridge deposit"],
+  ["0x838b2520", "Token bridge deposit"],
+  ["0x32b7006d", "Bridge withdrawal"],
+  ["0xa3a79548", "Bridge withdrawal"],
+  ["0x8340f549", "Bridge deposit"],
+  ["0x7b3a3c8b", "Outbound bridge transfer"],
 ]);
 
 export function decodeActivity(transaction: ActivityTransaction): DecodedActivity {
@@ -68,11 +85,13 @@ export function decodeActivity(transaction: ActivityTransaction): DecodedActivit
     }
   }
 
-  if (SWAP_SELECTORS.has(selector)) {
-    return { type: "swap", label: "Swap", metadata: { label: "Swap", selector } };
+  const swapMethod = SWAP_SELECTORS.get(selector);
+  if (swapMethod) {
+    return { type: "swap", label: swapMethod, metadata: { label: "Swap", method: swapMethod, selector } };
   }
-  if (BRIDGE_SELECTORS.has(selector)) {
-    return { type: "bridge", label: "Bridge interaction", metadata: { label: "Bridge", selector } };
+  const bridgeMethod = BRIDGE_SELECTORS.get(selector);
+  if (bridgeMethod) {
+    return { type: "bridge", label: bridgeMethod, metadata: { label: "Bridge", method: bridgeMethod, selector } };
   }
   return {
     type: "contract_interaction",

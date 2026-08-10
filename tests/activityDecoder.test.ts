@@ -19,4 +19,18 @@ describe("activity decoding", () => {
     expect(result.type).toBe("erc20_transfer");
     expect(result.metadata.recipient).toBe(recipient);
   });
+
+  it("recognizes router swaps", () => {
+    const result = decodeActivity({ to: recipient, value: 0n, input: "0x38ed1739" });
+    expect(result.type).toBe("swap");
+    expect(result.metadata.label).toBe("Swap");
+    expect(result.metadata.method).toBe("Exact-token swap");
+  });
+
+  it("recognizes bridge deposits", () => {
+    const result = decodeActivity({ to: recipient, value: 10n, input: "0xe9e05c42" });
+    expect(result.type).toBe("bridge");
+    expect(result.metadata.label).toBe("Bridge");
+    expect(result.metadata.method).toBe("Bridge deposit");
+  });
 });

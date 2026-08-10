@@ -23,6 +23,14 @@ export function formatActivityAlert(
   const chain = getChainById(activity.chainId, env);
   const destination = String(activity.decoded.metadata.recipient ?? activity.to ?? "Contract creation");
   const value = activity.value > 0n ? `${formatEther(activity.value)} ${chain.nativeSymbol}` : "0";
+  const actionIcon: Record<DecodedActivity["type"], string> = {
+    native_transfer: "📤",
+    erc20_transfer: "📤",
+    nft_transfer: "🖼",
+    swap: "🔄",
+    bridge: "🌉",
+    contract_interaction: "🧩",
+  };
   return [
     "🚨 DEV WALLET ACTIVITY",
     "",
@@ -31,7 +39,7 @@ export function formatActivityAlert(
     "",
     `Wallet:\n${activity.wallet}`,
     "",
-    `Action: ${activity.decoded.label}`,
+    `Action: ${actionIcon[activity.decoded.type]} ${activity.decoded.label}`,
     `To: ${destination}`,
     ...(activity.value > 0n ? [`Value: ${value}`] : []),
     "",
