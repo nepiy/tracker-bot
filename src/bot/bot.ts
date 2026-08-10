@@ -17,7 +17,7 @@ export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext
   registerStopCommand(bot, dependencies);
   registerActivityCommand(bot, dependencies);
   bot.catch((error) => {
-    logger.error({ error: error.error, updateId: error.ctx.update.update_id }, "Telegram bot update failed");
+    logger.error({ err: error.error, updateId: error.ctx.update.update_id }, "Telegram bot update failed");
   });
   return bot;
 }

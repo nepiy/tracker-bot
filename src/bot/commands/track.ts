@@ -11,7 +11,7 @@ async function trackUrl(ctx: BotContext, dependencies: BotDependencies, url: str
     const result = await dependencies.tracking.track(ctx.from.id, url);
     await ctx.api.editMessageText(ctx.chat!.id, progress.message_id, formatTrackingResult(result));
   } catch (error) {
-    logger.error({ error, telegramId: ctx.from.id }, "tracking request failed");
+    logger.error({ err: error, telegramId: ctx.from.id }, "tracking request failed");
     await ctx.api.deleteMessage(ctx.chat!.id, progress.message_id).catch(() => undefined);
     await replyWithError(ctx, error);
   }

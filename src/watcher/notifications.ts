@@ -60,7 +60,7 @@ export class NotificationService {
           });
         } catch (error) {
           logger.error(
-            { error, telegramId: recipient.telegramId, chainId: activity.chainId, txHash: activity.hash },
+            { err: error, telegramId: recipient.telegramId, chainId: activity.chainId, txHash: activity.hash },
             "Telegram notification failed",
           );
         }

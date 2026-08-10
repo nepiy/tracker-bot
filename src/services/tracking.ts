@@ -40,7 +40,7 @@ export class TrackingService {
   async track(telegramId: number, url: string): Promise<TrackingResult> {
     const collection = await withRetry(
       () => resolveOpenSeaCollection(url, this.env, this.fetcher),
-      { attempts: 3, onRetry: (error, attempt) => logger.warn({ error, attempt }, "retrying OpenSea resolution") },
+      { attempts: 3, onRetry: (error, attempt) => logger.warn({ err: error, attempt }, "retrying OpenSea resolution") },
     );
     logger.info(
       { slug: collection.slug, chainId: collection.chainId, contract: collection.contractAddress },
@@ -52,7 +52,7 @@ export class TrackingService {
     const explorer = createExplorer(chain, this.env);
     const deployment = await withRetry(
       () => resolveContractDeployment(collection.contractAddress, explorer, client),
-      { attempts: 3, onRetry: (error, attempt) => logger.warn({ error, attempt, chainId: chain.chainId }, "retrying deployment resolution") },
+      { attempts: 3, onRetry: (error, attempt) => logger.warn({ err: error, attempt, chainId: chain.chainId }, "retrying deployment resolution") },
     );
     logger.info({ ...deployment, contract: collection.contractAddress }, "resolved contract deployment");
 
