@@ -1,6 +1,6 @@
 # OpenSea Dev Wallet Tracker Bot
 
-A production-oriented Telegram bot that resolves an NFT collection from an OpenSea URL, separates verified deployment facts from inferred team-wallet signals, and alerts subscribers only when the selected wallet initiates an outgoing transaction.
+A production-oriented Telegram bot that resolves NFT collections from OpenSea, tracks inferred team-wallet activity, and lets users monitor any EVM wallet for NFT marketplace buys and sells.
 
 Initially supported EVM networks:
 
@@ -17,6 +17,8 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Collection dashboard with network, contract, inferred wallet, OpenSea, and explorer details
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
 - Automatic outgoing-activity alerts for active subscribers
+- Direct wallet subscriptions across Ethereum, Base, and Robinhood Chain
+- Automatic NFT buy/sell alerts for recognized Seaport marketplace settlements
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
@@ -38,6 +40,8 @@ Open `/start`, tap **Add collection**, and send a URL such as `https://opensea.i
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
 
+For direct wallet tracking, tap **Track wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
+
 Incoming transactions do not alert. A transaction only qualifies when its top-level `from` address equals a currently watched address. The separate watcher process must be running for automatic detection and notifications.
 
 ## Architecture
@@ -52,11 +56,12 @@ Telegram bot process
               └─ Supabase repositories
 
 Watcher process (one runner per chain)
-  └─ deduplicated active wallets
+  └─ deduplicated active collection + direct wallet subscriptions
       └─ restart-safe block cursor
-          └─ outgoing transaction filter
-              ├─ activity decoder + storage
-              └─ Telegram notification fan-out
+          ├─ outgoing collection-wallet transaction filter
+          │   └─ activity decoder + notification fan-out
+          └─ canonical Seaport settlement filter
+              └─ ERC-721/ERC-1155 receipt decoding + buy/sell alerts
 ```
 
 Important source areas:
@@ -95,6 +100,8 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    list - Open tracked collections
    stop - Stop tracking a collection
    activity - View sends, swaps, and bridges
+   wallet - Track a wallet's NFT buys and sells
+   wallets - List or stop tracked wallets
    ```
 
 Do not put the token in source control or Railway build logs.
@@ -146,8 +153,10 @@ The schema contains:
 - `processed_transactions`
 - `wallet_activity`
 - `chain_sync_state`
+- `wallet_subscriptions`
+- `marketplace_activity`
 
-Wallets use a unique `(chain_id, address)` key, subscriptions use a unique `(user_id, collection_id)` key, and processed transactions use `(chain_id, tx_hash)` for deduplication.
+Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing and marketplace activity use transaction/log uniqueness constraints for restart-safe processing.
 
 ## Environment variables
 
@@ -231,8 +240,11 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
 - `/stop`: inline collection picker that deactivates only that user's subscription
 - `/activity`: interactive collection picker with All, Sends, Swaps, and Bridges filters
+- `/wallet <address>`: choose one or all supported networks for NFT marketplace buy/sell alerts
+- Paste an EVM wallet address directly: opens the same network picker
+- `/wallets`: list direct wallet subscriptions and stop individual network subscriptions
 
-The dashboard keeps common actions in inline buttons: add a collection, view or refresh tracked collections, inspect recent activity, stop tracking, and return to the main menu. The “Add collection” button uses Telegram's reply input while the same strict OpenSea URL validation remains in place.
+The dashboard keeps common actions in inline buttons: add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Collection URLs and wallet addresses use separate validated reply-input flows.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 
@@ -249,6 +261,8 @@ For each supported chain, the watcher:
 7. Sends a Telegram message to every user actively subscribed to the related collection.
 
 Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value when present, transaction hash, and explorer link. Swap and bridge alerts use distinct labels and icons. Failed Telegram deliveries are logged while the stored activity remains accessible through `/activity`.
+
+Direct wallet subscriptions use a separate marketplace path. For each confirmed canonical Seaport settlement, the watcher decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt. An incoming NFT transfer is recorded as `nft_buy`; an outgoing NFT transfer is recorded as `nft_sell`. Alerts include the wallet, network, NFT contract, token ID, quantity, counterparty, transaction hash, and explorer link.
 
 ## Railway deployment
 
@@ -286,6 +300,8 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Only top-level transactions initiated by the watched address alert. An incoming transaction, including one that transfers tokens to the watched wallet, is ignored.
 - Native transfers, common ERC-20 and NFT transfer selectors, common V2/V3/aggregator swap selectors, and bridge deposit/withdrawal selectors are categorized. The activity dashboard counts and filters sends, swaps, and bridges separately. Unknown calldata is safely labeled `Contract interaction`.
 - Internal transfers emitted by a contract call are not fully decoded yet. Receipt/log decoding and protocol-specific swap/bridge registries are the next enrichment layer.
+- Direct wallet buy/sell detection currently covers canonical Seaport 1.5/1.6 settlements (including OpenSea and other Seaport-based marketplace flows). Blur, LooksRare-native, and other non-Seaport protocols require additional verified settlement adapters.
+- Marketplace alerts identify NFT direction but do not yet calculate aggregate sale price or fees.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
@@ -293,7 +309,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 32 tests across 10 files. It covers URL validation, address normalization, chain mapping, evidence scoring, weak-confidence fallback, factory deployment handling, subscription deduplication, outgoing filtering, incoming ignoring, send/swap/bridge decoding, activity dashboard formatting and filtering, and processed-transaction deduplication.
+The test suite currently contains 35 tests across 11 files. It covers URL and address validation, chain mapping, evidence scoring, weak-confidence fallback, factory deployment handling, subscription deduplication, outgoing filtering, send/swap/bridge decoding, direct-wallet dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test
@@ -321,6 +337,7 @@ Treat `TELEGRAM_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENSEA_API_KEY`, RPC 
 ## External API references
 
 - [OpenSea: Get a single collection](https://docs.opensea.io/reference/get_collection)
+- [Project OpenSea: canonical Seaport deployments](https://github.com/ProjectOpenSea/seaport#deployments)
 - [Etherscan v2: Contract creator and creation transaction](https://docs.etherscan.io/api-reference/endpoint/getcontractcreation)
 - [Blockscout v2: Address info](https://docs.blockscout.com/api-reference/get-address-info)
 - [Robinhood Chain network configuration](https://docs.robinhood.com/chain/connecting/)

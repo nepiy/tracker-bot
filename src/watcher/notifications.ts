@@ -3,6 +3,7 @@ import { formatEther, type Address, type Hash } from "viem";
 import type { AppEnv } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import type { NotificationRecipient } from "../database/repositories/subscriptions.js";
+import type { WalletNotificationRecipient } from "../database/repositories/walletSubscriptions.js";
 import type { DecodedActivity } from "../types/index.js";
 import { getChainById } from "../blockchain/chains.js";
 
@@ -13,6 +14,19 @@ export interface ActivityNotification {
   value: bigint;
   hash: Hash;
   decoded: DecodedActivity;
+}
+
+export interface MarketplaceNotification {
+  chainId: number;
+  wallet: Address;
+  hash: Hash;
+  type: "nft_buy" | "nft_sell";
+  marketplace: string;
+  nftContract: Address;
+  tokenId: bigint;
+  quantity: bigint;
+  standard: "ERC-721" | "ERC-1155";
+  counterparty: Address | null;
 }
 
 export function formatActivityAlert(
@@ -48,6 +62,28 @@ export function formatActivityAlert(
   ].join("\n");
 }
 
+export function formatMarketplaceAlert(activity: MarketplaceNotification, env: AppEnv): string {
+  const chain = getChainById(activity.chainId, env);
+  const action = activity.type === "nft_buy" ? "🟢 BUY" : "🔴 SELL";
+  return [
+    "🛍 WALLET MARKETPLACE ACTIVITY",
+    "",
+    `Action: ${action}`,
+    `Marketplace protocol: ${activity.marketplace}`,
+    `Chain: ${chain.name}`,
+    "",
+    `Wallet:\n${activity.wallet}`,
+    `NFT contract:\n${activity.nftContract}`,
+    `Standard: ${activity.standard}`,
+    `Token ID: ${activity.tokenId}`,
+    ...(activity.quantity > 1n ? [`Quantity: ${activity.quantity}`] : []),
+    ...(activity.counterparty ? [`Counterparty:\n${activity.counterparty}`] : []),
+    "",
+    `Transaction:\n${activity.hash}`,
+    `${chain.explorerUrl}/tx/${activity.hash}`,
+  ].join("\n");
+}
+
 export class NotificationService {
   private readonly api: Api;
 
@@ -70,6 +106,24 @@ export class NotificationService {
           logger.error(
             { err: error, telegramId: recipient.telegramId, chainId: activity.chainId, txHash: activity.hash },
             "Telegram notification failed",
+          );
+        }
+      }),
+    );
+  }
+
+  async sendMarketplace(recipients: WalletNotificationRecipient[], activity: MarketplaceNotification): Promise<void> {
+    const unique = new Map(recipients.map((recipient) => [recipient.telegramId, recipient]));
+    await Promise.allSettled(
+      [...unique.values()].map(async (recipient) => {
+        try {
+          await this.api.sendMessage(recipient.telegramId, formatMarketplaceAlert(activity, this.env), {
+            link_preview_options: { is_disabled: true },
+          });
+        } catch (error) {
+          logger.error(
+            { err: error, telegramId: recipient.telegramId, chainId: activity.chainId, txHash: activity.hash },
+            "Telegram marketplace notification failed",
           );
         }
       }),

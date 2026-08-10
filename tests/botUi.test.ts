@@ -4,6 +4,7 @@ import type { ActivityRow } from "../src/database/repositories/transactions.js";
 import { formatCollectionDetails, formatTrackedCollections } from "../src/bot/commands/list.js";
 import { activityMatchesFilter, formatActivityAction } from "../src/bot/commands/activity.js";
 import { chainLabel, explorerAddressUrl } from "../src/bot/ui.js";
+import { formatWalletSubscriptions } from "../src/bot/commands/wallet.js";
 
 const subscription: SubscriptionView = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -70,5 +71,18 @@ describe("Telegram collection dashboard", () => {
       `https://robinhoodchain.blockscout.com/address/${subscription.contractAddress}`,
     );
     expect(explorerAddressUrl(999, subscription.contractAddress)).toBeNull();
+  });
+
+  it("formats direct wallet tracking separately from collections", () => {
+    const text = formatWalletSubscriptions([{
+      id: "33333333-3333-4333-8333-333333333333",
+      walletId: "44444444-4444-4444-8444-444444444444",
+      chainId: 8453,
+      address: subscription.walletAddress!,
+      active: true,
+    }]);
+    expect(text).toContain("1 active");
+    expect(text).toContain("0x57ff...004f");
+    expect(text).toContain("Base • 🟢 Active");
   });
 });

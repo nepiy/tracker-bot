@@ -8,6 +8,7 @@ import type { ChainConfig } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 import { processBlock, type ProcessableBlock } from "./processBlock.js";
+import { processMarketplaceBlock } from "./marketplace.js";
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -39,9 +40,10 @@ export class WalletWatcher {
     let failureDelayMs = 1_000;
     while (!signal.aborted) {
       try {
-        const [head, allWatched] = await Promise.all([
+        const [head, allWatched, marketplaceWatched] = await Promise.all([
           withRetry(() => client.getBlockNumber(), { attempts: 3 }),
           this.repositories.wallets.listActiveWatched(),
+          this.repositories.walletSubscriptions.listActiveWatched(chain.chainId),
         ]);
         const confirmations = BigInt(this.env.WATCHER_CONFIRMATIONS);
         const safeHead = head > confirmations ? head - confirmations : 0n;
@@ -49,14 +51,16 @@ export class WalletWatcher {
         let lastProcessed = await this.repositories.transactions.getLastProcessedBlock(chain.chainId);
 
         if (lastProcessed === null) {
-          const lookback = watched.length ? BigInt(this.env.WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS) : 0n;
+          const lookback = watched.length || marketplaceWatched.length
+            ? BigInt(this.env.WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS)
+            : 0n;
           lastProcessed = safeHead > lookback ? safeHead - lookback : 0n;
           await this.repositories.transactions.setLastProcessedBlock(chain.chainId, lastProcessed);
         }
 
         for (let blockNumber = lastProcessed + 1n; blockNumber <= safeHead; blockNumber += 1n) {
           if (signal.aborted) return;
-          if (watched.length) {
+          if (watched.length || marketplaceWatched.length) {
             const block = await withRetry(
               () => client.getBlock({ blockNumber, includeTransactions: true }),
               {
@@ -65,13 +69,26 @@ export class WalletWatcher {
                   logger.warn({ err: error, attempt, chainId: chain.chainId, blockNumber: blockNumber.toString() }, "retrying block fetch"),
               },
             );
-            await processBlock(
-              chain.chainId,
-              block as unknown as ProcessableBlock,
-              watched,
-              this.repositories,
-              this.notifications,
-            );
+            if (watched.length) {
+              await processBlock(
+                chain.chainId,
+                block as unknown as ProcessableBlock,
+                watched,
+                this.repositories,
+                this.notifications,
+              );
+            }
+            if (marketplaceWatched.length) {
+              await processMarketplaceBlock(
+                chain.chainId,
+                blockNumber,
+                block.timestamp,
+                marketplaceWatched,
+                client,
+                this.repositories,
+                this.notifications,
+              );
+            }
           }
           await this.repositories.transactions.setLastProcessedBlock(chain.chainId, blockNumber);
         }

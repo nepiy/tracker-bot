@@ -4,7 +4,7 @@ import type { BotContext } from "./context.js";
 export const MAIN_MENU_TEXT = [
   "🛰 NFT Dev Wallet Tracker",
   "",
-  "Track NFT collection team wallets and receive alerts when a tracked wallet sends a transaction.",
+  "Track NFT collection team wallets, or monitor any wallet for NFT marketplace buys and sells.",
   "",
   "Choose an option below:",
 ].join("\n");
@@ -16,6 +16,11 @@ export const HELP_TEXT = [
   "2. The bot verifies its contract and analyzes on-chain wallet signals.",
   "3. The watcher alerts you about outgoing activity from the selected wallet.",
   "",
+  "Direct wallet tracking:",
+  "1. Choose Track wallet and send an EVM address.",
+  "2. Select Ethereum, Base, Robinhood, or all networks.",
+  "3. Receive buy/sell alerts for recognized NFT marketplace settlements.",
+  "",
   "You can also paste an OpenSea collection URL directly at any time.",
   "",
   "Commands:",
@@ -23,6 +28,8 @@ export const HELP_TEXT = [
   "/list — tracked collections dashboard",
   "/activity — recent outgoing activity",
   "/stop — stop tracking a collection",
+  "/wallet <address> — track marketplace buys and sells",
+  "/wallets — list or stop tracked wallets",
   "/help — show this information",
   "",
   "Wallet ownership is inferred from on-chain evidence and is not a verified real-world identity.",
@@ -35,6 +42,9 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .row()
     .text("⚡ Activity", "menu:activity")
     .text("🛑 Stop tracking", "menu:stop")
+    .row()
+    .text("👛 Track wallet", "menu:wallet-track")
+    .text("👛 Wallets", "menu:wallets")
     .row()
     .text("❓ Help", "menu:help")
     .text("🔄 Refresh", "menu:home");
