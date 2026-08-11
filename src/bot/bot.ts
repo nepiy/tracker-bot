@@ -10,11 +10,13 @@ import { registerWalletCommands } from "./commands/wallet.js";
 import { registerGroupCommands } from "./commands/group.js";
 import { rateLimit } from "./middleware/rateLimit.js";
 import { registerSettingsCommand } from "./commands/settings.js";
+import { registerInfoCommand } from "./commands/info.js";
 
 export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext> {
   const bot = new Bot<BotContext>(dependencies.env.TELEGRAM_BOT_TOKEN);
   bot.use(rateLimit(dependencies.env.TELEGRAM_RATE_LIMIT_PER_MINUTE));
   registerStartCommands(bot);
+  registerInfoCommand(bot, dependencies);
   registerTrackCommand(bot, dependencies);
   registerGroupCommands(bot, dependencies, requestOpenSeaLink);
   registerListCommand(bot, dependencies);

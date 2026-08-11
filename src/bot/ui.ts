@@ -4,7 +4,7 @@ import type { BotContext } from "./context.js";
 export const MAIN_MENU_TEXT = [
   "🛰 NFT Dev Wallet Tracker",
   "",
-  "Track NFT collection team wallets, or monitor any wallet for NFT marketplace buys and sells.",
+  "Research an NFT collection, track its team wallet, or monitor any wallet for marketplace buys and sells.",
   "",
   "Choose an option below:",
 ].join("\n");
@@ -25,6 +25,7 @@ export const HELP_TEXT = [
   "You can also paste an OpenSea collection URL directly at any time.",
   "",
   "Commands:",
+  "/info <OpenSea URL or contract> — research a collection",
   "/track <OpenSea URL> — add a collection",
   "/list — tracked collections dashboard",
   "/activity — recent outgoing activity",
@@ -41,6 +42,8 @@ export const HELP_TEXT = [
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text("🔎 Collection info", "menu:info")
+    .row()
     .text("➕ Add collection", "menu:track")
     .text("📡 Collections", "menu:list")
     .row()

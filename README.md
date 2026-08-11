@@ -15,6 +15,9 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 ## Current features
 
 - Interactive Telegram dashboard with inline navigation instead of command-only flows
+- Read-only collection research from an OpenSea URL or Ethereum/Base/Robinhood NFT contract
+- Collection owner, live mint-or-floor details, top offer, 24-hour volume, and floor-price change reporting
+- Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
 - OpenSea-link input prompt plus direct URL-paste support
 - Collection dashboard with network, contract, inferred wallet, OpenSea, and explorer details
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
@@ -47,6 +50,8 @@ Open `/start`, tap **Add collection**, and send a URL such as `https://opensea.i
 7. Persist one subscription per Telegram user and collection.
 8. Monitor each unique wallet once, store outgoing activity, and fan alerts out to every active subscriber.
 
+For research without subscribing, tap **Collection info** or run `/info`. Send either an OpenSea collection URL or an NFT contract on Ethereum, Base, or Robinhood Chain. The bot resolves the official OpenSea collection and returns its link, contract, chain, OpenSea collection-owner wallet, top collection offer, 24-hour volume, and 24-hour floor-price change. When a mint is active or its next stage begins within 12 hours, mint status, access, price, GMT schedule, wallet limit, and available supply details replace the floor-price line. Otherwise, the current floor price is shown. If the owner's OpenSea profile is attributed as the creator of other collections, up to five are included; the section is omitted when there are none.
+
 The bot can also be added to a Telegram group. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
@@ -61,7 +66,11 @@ Incoming transactions do not alert. A transaction only qualifies when its top-le
 
 ```text
 Telegram bot process
-  └─ OpenSea resolver
+  ├─ OpenSea collection information lookup
+  │   ├─ URL or supported-chain contract resolution
+  │   ├─ owner/profile and related-collection lookup
+  │   └─ drop, floor, offer, volume, and price-history data
+  └─ OpenSea tracking resolver
       └─ chain adapter
           ├─ explorer deployment adapter
           ├─ viem RPC client
@@ -120,6 +129,7 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    ```text
    start - Open the bot dashboard
    help - Show help
+   info - Research an OpenSea collection
    track - Track an OpenSea collection
    list - Open tracked collections
    stop - Stop tracking a collection
@@ -139,6 +149,12 @@ Create an API key using OpenSea's current developer flow and set `OPENSEA_API_KE
 
 ```text
 GET https://api.opensea.io/api/v2/collections/{slug}
+GET https://api.opensea.io/api/v2/collections/{slug}/stats
+GET https://api.opensea.io/api/v2/collections/{slug}/floor_prices
+GET https://api.opensea.io/api/v2/offers/collection/{slug}
+GET https://api.opensea.io/api/v2/chain/{chain}/contract/{address}
+GET https://api.opensea.io/api/v2/accounts/resolve/{owner}
+GET https://api.opensea.io/api/v2/collections?creator_username={username}
 GET https://api.opensea.io/api/v2/drops?type=upcoming
 GET https://api.opensea.io/api/v2/drops/{slug}
 GET https://api.opensea.io/api/v2/chain/{chain}/token/{address}
@@ -293,6 +309,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 
 - `/start`: open the inline-button dashboard
 - `/help`: setup and command help
+- `/info <OpenSea URL or NFT contract>`: return read-only collection, owner, mint-or-floor, offer, volume, price-change, and related-collection information; `/info` by itself opens the validated input prompt
 - `/track <OpenSea URL>`: analyze and subscribe; `/track` by itself opens an OpenSea-link input prompt
 - Paste an OpenSea collection URL directly: same behavior as `/track`
 - `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
@@ -305,7 +322,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
 - `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
 
-The dashboard keeps common actions in inline buttons: add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Collection URLs and wallet addresses use separate validated reply-input flows.
+The dashboard keeps common actions in inline buttons: research a collection, add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Research, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to the research prompt is not mistaken for a wallet subscription.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 
@@ -396,6 +413,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - CEX detection is only as complete as `CEX_ADDRESSES_JSON`; exchanges issue many account-specific deposit addresses and can rotate infrastructure.
 - Bridge detection uses the maintained selector registry. A new/custom bridge method must be added before it can be labeled automatically.
 - Free-mint discovery and price-change detection cover public stages returned by OpenSea's official upcoming calendar while they remain in the 12-hour window. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded. Approximate USD values depend on OpenSea's current token quote and can move after the alert.
+- `/info` treats "minting soon" as a stage beginning within 12 hours. Its 24-hour price change is calculated from OpenSea's floor-price history; it is reported as unavailable when a complete 24-hour baseline does not exist. Owner attribution and related collections reflect OpenSea account data, not verified real-world identity.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
@@ -403,7 +421,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 51 tests across 15 files. It covers URL and address validation, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 54 tests across 16 files. It covers URL and address validation, collection research by URL and contract, owner/related-collection filtering, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test
