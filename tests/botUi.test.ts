@@ -5,6 +5,8 @@ import { formatCollectionDetails, formatTrackedCollections } from "../src/bot/co
 import { activityMatchesFilter, formatActivityAction } from "../src/bot/commands/activity.js";
 import { chainLabel, explorerAddressUrl } from "../src/bot/ui.js";
 import { formatWalletSubscriptions } from "../src/bot/commands/wallet.js";
+import { formatGroupSubscriptions } from "../src/bot/commands/group.js";
+import { isAdminStatus } from "../src/bot/groupAdmin.js";
 
 const subscription: SubscriptionView = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -84,5 +86,23 @@ describe("Telegram collection dashboard", () => {
     expect(text).toContain("1 active");
     expect(text).toContain("0x57ff...004f");
     expect(text).toContain("Base • 🟢 Active");
+  });
+
+  it("formats group subscriptions and recognizes only Telegram admin roles", () => {
+    const text = formatGroupSubscriptions([{
+      id: "55555555-5555-4555-8555-555555555555",
+      collectionId: subscription.collectionId,
+      slug: subscription.slug,
+      name: subscription.name,
+      chain: subscription.chain,
+      chainId: subscription.chainId,
+      contractAddress: subscription.contractAddress,
+      walletAddress: subscription.walletAddress,
+    }]);
+    expect(text).toContain("Group tracking");
+    expect(text).toContain("Only group admins");
+    expect(isAdminStatus("creator")).toBe(true);
+    expect(isAdminStatus("administrator")).toBe(true);
+    expect(isAdminStatus("member")).toBe(false);
   });
 });

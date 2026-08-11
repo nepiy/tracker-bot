@@ -31,6 +31,7 @@ describe("outgoing transaction filtering", () => {
         storeActivity,
       },
       subscriptions: { recipientsForWallet: async () => [] },
+      groupSubscriptions: { recipientsForWallet: async () => [] },
     } as unknown as Repositories;
     const notifications = { send } as unknown as NotificationService;
     const block: ProcessableBlock = {
@@ -57,6 +58,7 @@ describe("outgoing transaction filtering", () => {
     const repositories = {
       transactions: { claim: async () => true, storeActivity: async () => undefined },
       subscriptions: { recipientsForWallet: async () => [] },
+      groupSubscriptions: { recipientsForWallet: async () => [] },
     } as unknown as Repositories;
     const block: ProcessableBlock = {
       number: 10n,
@@ -79,5 +81,38 @@ describe("outgoing transaction filtering", () => {
     );
     expect(getBalance).toHaveBeenCalledWith({ address: watched, blockNumber: 9n });
     expect(send.mock.calls[0]![1]).toMatchObject({ balanceBefore: 100n });
+  });
+
+  it("fans a collection alert out to a subscribed group", async () => {
+    const send = vi.fn(async () => undefined);
+    const repositories = {
+      transactions: { claim: async () => true, storeActivity: async () => undefined },
+      subscriptions: { recipientsForWallet: async () => [] },
+      groupSubscriptions: {
+        recipientsForWallet: async () => [{ telegramId: -100123, collectionId: "collection", collectionName: "FishBroker" }],
+      },
+    } as unknown as Repositories;
+    const block: ProcessableBlock = {
+      number: 10n,
+      timestamp: 1_700_000_000n,
+      transactions: [{
+        hash: `0x${"6".repeat(64)}` as Hash,
+        from: watched,
+        to: other,
+        value: 0n,
+        input: "0x12345678",
+      }],
+    };
+    await processBlock(
+      1,
+      block,
+      [{ id: "wallet", chain_id: 1, address: watched, collectionIds: ["collection"] }],
+      repositories,
+      { send } as unknown as NotificationService,
+    );
+    expect(send).toHaveBeenCalledWith(
+      [{ telegramId: -100123, collectionId: "collection", collectionName: "FishBroker" }],
+      expect.any(Object),
+    );
   });
 });

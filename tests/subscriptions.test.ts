@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SubscriptionsRepository } from "../src/database/repositories/subscriptions.js";
+import { GroupSubscriptionsRepository } from "../src/database/repositories/groupSubscriptions.js";
 
 class SubscriptionDatabaseFake {
   active = false;
@@ -30,6 +31,14 @@ describe("subscription deduplication", () => {
     const repository = new SubscriptionsRepository(database as unknown as SupabaseClient);
     await expect(repository.subscribe("user", "collection")).resolves.toEqual({ alreadyActive: false });
     await expect(repository.subscribe("user", "collection")).resolves.toEqual({ alreadyActive: true });
+    expect(database.upserts).toBe(1);
+  });
+
+  it("deduplicates group subscriptions independently of personal subscriptions", async () => {
+    const database = new SubscriptionDatabaseFake();
+    const repository = new GroupSubscriptionsRepository(database as unknown as SupabaseClient);
+    await expect(repository.subscribe(-100123, "collection")).resolves.toEqual({ alreadyActive: false });
+    await expect(repository.subscribe(-100123, "collection")).resolves.toEqual({ alreadyActive: true });
     expect(database.upserts).toBe(1);
   });
 });

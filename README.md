@@ -24,6 +24,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - High-risk `ALERT` notifications for native sends above 90% of the pre-block balance
 - High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
 - Cross-chain reuse of inferred dev addresses across every configured EVM monitoring network
+- Telegram group collection alerts managed only by verified group administrators
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
@@ -42,6 +43,8 @@ Open `/start`, tap **Add collection**, and send a URL such as `https://opensea.i
 6. Score candidates and clearly label the selected wallet as inferred.
 7. Persist one subscription per Telegram user and collection.
 8. Monitor each unique wallet once, store outgoing activity, and fan alerts out to every active subscriber.
+
+The bot can also be added to a Telegram group. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
 
@@ -111,6 +114,8 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    activity - View sends, swaps, and bridges
    wallet - Track a wallet's NFT buys and sells
    wallets - List or stop tracked wallets
+   grouptrack - Track a collection in this group (admins only)
+   grouplist - List or stop this group's collection alerts (admins only)
    ```
 
 Do not put the token in source control or Railway build logs.
@@ -164,6 +169,7 @@ The schema contains:
 - `chain_sync_state`
 - `wallet_subscriptions`
 - `marketplace_activity`
+- `group_subscriptions`
 
 Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing and marketplace activity use transaction/log uniqueness constraints for restart-safe processing.
 
@@ -274,10 +280,21 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/wallet <address>`: choose one or all supported networks for NFT marketplace buy/sell alerts
 - Paste an EVM wallet address directly: opens the same network picker
 - `/wallets`: list direct wallet subscriptions and stop individual network subscriptions
+- `/grouptrack <OpenSea URL>`: add a collection to the current Telegram group; group admins only
+- `/grouplist`: list or stop the current group's tracked collections; group admins only
 
 The dashboard keeps common actions in inline buttons: add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Collection URLs and wallet addresses use separate validated reply-input flows.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
+
+### Telegram group setup
+
+1. Add the bot to the group.
+2. Promote the bot to a group administrator. This lets it reliably verify whether the person changing subscriptions is a group admin.
+3. A group admin sends `/track https://opensea.io/collection/your-collection` or `/grouptrack` and then replies with the OpenSea URL.
+4. Use `/grouplist` to review active group alerts or stop one.
+
+Only Telegram members whose current role is `creator` or `administrator` can create, view, or stop a group subscription. The check is performed live with Telegram for every group command and inline action. In groups where Telegram privacy mode is enabled, use the slash commands; the bot may not receive ordinary pasted URLs.
 
 ## Automatic activity alerts
 
@@ -289,7 +306,7 @@ For each supported chain, the watcher:
 4. Claims each transaction once to prevent duplicate processing.
 5. Classifies it as a native send, ERC-20 transfer, NFT transfer, swap, bridge, or contract interaction.
 6. Stores the activity in Supabase.
-7. Sends a Telegram message to every user actively subscribed to the related collection.
+7. Sends a Telegram message to every active personal subscriber and subscribed Telegram group.
 
 Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value when present, transaction hash, and explorer link. Swap and bridge alerts use distinct labels and icons. Failed Telegram deliveries are logged while the stored activity remains accessible through `/activity`.
 
@@ -347,7 +364,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 41 tests across 13 files. It covers URL and address validation, discovery versus monitoring chain mapping, cross-chain dev-wallet linkage, evidence scoring, subscription deduplication, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 44 tests across 13 files. It covers URL and address validation, discovery versus monitoring chain mapping, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test
@@ -380,3 +397,4 @@ Treat `TELEGRAM_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENSEA_API_KEY`, RPC 
 - [Blockscout v2: Address info](https://docs.blockscout.com/api-reference/get-address-info)
 - [Robinhood Chain network configuration](https://docs.robinhood.com/chain/connecting/)
 - [Supabase database security](https://supabase.com/docs/guides/database/secure-data)
+- [Telegram Bot API: chat member statuses](https://core.telegram.org/bots/api#getchatmember)

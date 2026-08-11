@@ -31,6 +31,8 @@ export const HELP_TEXT = [
   "/stop — stop tracking a collection",
   "/wallet <address> — track marketplace buys and sells",
   "/wallets — list or stop tracked wallets",
+  "/grouptrack <OpenSea URL> — track a collection in a group (admins only)",
+  "/grouplist — manage this group's collection alerts (admins only)",
   "/help — show this information",
   "",
   "Wallet ownership is inferred from on-chain evidence and is not a verified real-world identity.",

@@ -20,6 +20,15 @@ export interface TrackingResult {
   alreadyActive: boolean;
 }
 
+interface PreparedTracking {
+  collection: ResolvedCollection;
+  deployment: DeploymentInfo;
+  analysis: DevWalletAnalysis;
+  trackedAddress: Address;
+  trackingFallback: boolean;
+  collectionId: string;
+}
+
 const EVIDENCE_RELATIONSHIP: Partial<Record<WalletEvidence, string>> = {
   contract_deployer: "contract_creator",
   deployment_initiator: "deployment_initiator",
@@ -38,6 +47,24 @@ export class TrackingService {
   ) {}
 
   async track(telegramId: number, url: string): Promise<TrackingResult> {
+    const prepared = await this.prepare(url);
+    const user = await this.repositories.users.ensure(telegramId);
+    const subscription = await this.repositories.subscriptions.subscribe(user.id, prepared.collectionId);
+    return this.toTrackingResult(prepared, subscription.alreadyActive);
+  }
+
+  async trackGroup(chatId: number, url: string): Promise<TrackingResult> {
+    const prepared = await this.prepare(url);
+    const subscription = await this.repositories.groupSubscriptions.subscribe(chatId, prepared.collectionId);
+    return this.toTrackingResult(prepared, subscription.alreadyActive);
+  }
+
+  private toTrackingResult(prepared: PreparedTracking, alreadyActive: boolean): TrackingResult {
+    const { collectionId: _collectionId, ...result } = prepared;
+    return { ...result, alreadyActive };
+  }
+
+  private async prepare(url: string): Promise<PreparedTracking> {
     const collection = await withRetry(
       () => resolveOpenSeaCollection(url, this.env, this.fetcher),
       { attempts: 3, onRetry: (error, attempt) => logger.warn({ err: error, attempt }, "retrying OpenSea resolution") },
@@ -69,10 +96,7 @@ export class TrackingService {
       "completed dev wallet analysis",
     );
 
-    const [user, storedCollection] = await Promise.all([
-      this.repositories.users.ensure(telegramId),
-      this.repositories.collections.upsert(collection),
-    ]);
+    const storedCollection = await this.repositories.collections.upsert(collection);
 
     for (const candidate of analysis.candidates) {
       const wallet = await this.repositories.wallets.upsert(collection.chainId, candidate.address);
@@ -98,15 +122,13 @@ export class TrackingService {
       analysis.confidence,
       analysis.candidates.find((candidate) => candidate.address === trackedAddress)?.evidence ?? [],
     );
-    const subscription = await this.repositories.subscriptions.subscribe(user.id, storedCollection.id);
-
     return {
       collection,
       deployment,
       analysis,
       trackedAddress,
       trackingFallback,
-      alreadyActive: subscription.alreadyActive,
+      collectionId: storedCollection.id,
     };
   }
 }

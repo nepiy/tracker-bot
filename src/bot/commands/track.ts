@@ -3,16 +3,26 @@ import { logger } from "../../config/logger.js";
 import { findOpenSeaUrl } from "../../opensea/parseOpenSeaUrl.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { formatTrackingResult, replyWithError } from "../helpers.js";
+import { isGroupChat, requireGroupAdmin } from "../groupAdmin.js";
 
-const TRACK_PROMPT = [
+export const TRACK_PROMPT = [
   "➕ Add an OpenSea collection",
   "",
   "Send the full collection link, for example:",
   "https://opensea.io/collection/fishbroker",
 ].join("\n");
 
-async function requestOpenSeaLink(ctx: BotContext): Promise<void> {
-  await ctx.reply(TRACK_PROMPT, {
+export const GROUP_TRACK_PROMPT = [
+  "👥 Add a collection to this group",
+  "",
+  "Only group admins can manage group tracking.",
+  "Send the full OpenSea collection link, for example:",
+  "https://opensea.io/collection/fishbroker",
+].join("\n");
+
+export async function requestOpenSeaLink(ctx: BotContext): Promise<void> {
+  const group = isGroupChat(ctx);
+  await ctx.reply(group ? GROUP_TRACK_PROMPT : TRACK_PROMPT, {
     reply_markup: {
       force_reply: true,
       selective: true,
@@ -23,9 +33,26 @@ async function requestOpenSeaLink(ctx: BotContext): Promise<void> {
 
 async function trackUrl(ctx: BotContext, dependencies: BotDependencies, url: string): Promise<void> {
   if (!ctx.from) return;
+  const group = isGroupChat(ctx);
+  if (group && !await requireGroupAdmin(ctx)) return;
   const progress = await ctx.reply("🔎 Analyzing collection…");
   try {
-    const result = await dependencies.tracking.track(ctx.from.id, url);
+    const result = group
+      ? await dependencies.tracking.trackGroup(ctx.chat!.id, url)
+      : await dependencies.tracking.track(ctx.from.id, url);
+    if (group) {
+      const keyboard = new InlineKeyboard()
+        .text("👥 Group collections", "group:list")
+        .text("➕ Add another", "group:track");
+      await ctx.api.editMessageText(ctx.chat!.id, progress.message_id, [
+        result.alreadyActive ? "ℹ️ This group is already tracking the collection." : "✅ Group tracking enabled",
+        "",
+        formatTrackingResult(result),
+        "",
+        "Only group admins can change group tracking.",
+      ].join("\n"), { reply_markup: keyboard });
+      return;
+    }
     const keyboard = new InlineKeyboard()
       .text("📡 View collections", "menu:list")
       .text("⚡ Activity", "menu:activity")
@@ -36,24 +63,34 @@ async function trackUrl(ctx: BotContext, dependencies: BotDependencies, url: str
       reply_markup: keyboard,
     });
   } catch (error) {
-    logger.error({ err: error, telegramId: ctx.from.id }, "tracking request failed");
+    logger.error({ err: error, telegramId: ctx.from.id, chatId: ctx.chat?.id }, "tracking request failed");
     await ctx.api.deleteMessage(ctx.chat!.id, progress.message_id).catch(() => undefined);
     await replyWithError(ctx, error);
   }
 }
 
 export function registerTrackCommand(bot: Bot<BotContext>, dependencies: BotDependencies): void {
-  bot.command("track", async (ctx) => {
+  const handleTrackCommand = async (ctx: BotContext): Promise<void> => {
+    if (isGroupChat(ctx) && !await requireGroupAdmin(ctx)) return;
     const url = findOpenSeaUrl(String(ctx.match ?? ""));
     if (!url) {
       await requestOpenSeaLink(ctx);
       return;
     }
     await trackUrl(ctx, dependencies, url);
+  };
+  bot.command("track", handleTrackCommand);
+  bot.command("grouptrack", async (ctx) => {
+    if (!isGroupChat(ctx)) {
+      await ctx.reply("Use /grouptrack inside a Telegram group, or /track in a private chat.");
+      return;
+    }
+    await handleTrackCommand(ctx);
   });
 
   bot.callbackQuery("menu:track", async (ctx) => {
     await ctx.answerCallbackQuery();
+    if (isGroupChat(ctx) && !await requireGroupAdmin(ctx)) return;
     await requestOpenSeaLink(ctx);
   });
 
@@ -61,7 +98,8 @@ export function registerTrackCommand(bot: Bot<BotContext>, dependencies: BotDepe
     if (ctx.message.text.startsWith("/")) return next();
     const url = findOpenSeaUrl(ctx.message.text);
     if (!url) {
-      if (ctx.message.reply_to_message?.text === TRACK_PROMPT) {
+      if (ctx.message.reply_to_message?.text === TRACK_PROMPT || ctx.message.reply_to_message?.text === GROUP_TRACK_PROMPT) {
+        if (isGroupChat(ctx) && !await requireGroupAdmin(ctx)) return;
         await ctx.reply("That doesn't look like an OpenSea collection link. Please send a link beginning with https://opensea.io/collection/.");
         return;
       }

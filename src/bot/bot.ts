@@ -5,8 +5,9 @@ import { registerActivityCommand } from "./commands/activity.js";
 import { registerListCommand } from "./commands/list.js";
 import { registerStartCommands } from "./commands/start.js";
 import { registerStopCommand } from "./commands/stop.js";
-import { registerTrackCommand } from "./commands/track.js";
+import { registerTrackCommand, requestOpenSeaLink } from "./commands/track.js";
 import { registerWalletCommands } from "./commands/wallet.js";
+import { registerGroupCommands } from "./commands/group.js";
 import { rateLimit } from "./middleware/rateLimit.js";
 
 export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext> {
@@ -14,6 +15,7 @@ export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext
   bot.use(rateLimit(dependencies.env.TELEGRAM_RATE_LIMIT_PER_MINUTE));
   registerStartCommands(bot);
   registerTrackCommand(bot, dependencies);
+  registerGroupCommands(bot, dependencies, requestOpenSeaLink);
   registerListCommand(bot, dependencies);
   registerStopCommand(bot, dependencies);
   registerActivityCommand(bot, dependencies);

@@ -81,8 +81,11 @@ export async function processBlock(
       timestamp: new Date(Number(block.timestamp) * 1_000),
       decoded,
     });
-    const recipients = await repositories.subscriptions.recipientsForWallet(wallet.id);
-    await notifications.send(recipients, {
+    const [personalRecipients, groupRecipients] = await Promise.all([
+      repositories.subscriptions.recipientsForWallet(wallet.id),
+      repositories.groupSubscriptions.recipientsForWallet(wallet.id),
+    ]);
+    await notifications.send([...personalRecipients, ...groupRecipients], {
       chainId,
       wallet: from,
       to,
