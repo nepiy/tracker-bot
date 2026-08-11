@@ -15,6 +15,7 @@ export const HELP_TEXT = [
   "1. Add an OpenSea collection link.",
   "2. The bot verifies its contract and analyzes on-chain wallet signals.",
   "3. The watcher alerts you about outgoing activity from the selected wallet.",
+  "4. High-risk alerts are raised for >90% native-balance sends, bridges, and configured CEX destinations.",
   "",
   "Direct wallet tracking:",
   "1. Choose Track wallet and send an EVM address.",

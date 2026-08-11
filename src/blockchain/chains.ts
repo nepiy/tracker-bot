@@ -1,8 +1,10 @@
 import type { AppEnv } from "../config/env.js";
 import type { ChainConfig, SupportedChainKey } from "../types/index.js";
 import { UserFacingError } from "../utils/errors.js";
+import { getExtraMonitoringChains } from "../config/monitoring.js";
 
-type StaticChainConfig = Omit<ChainConfig, "rpcUrl"> & { rpcEnvKey: keyof AppEnv };
+type DiscoveryChainConfig = ChainConfig & { key: SupportedChainKey };
+type StaticChainConfig = Omit<DiscoveryChainConfig, "rpcUrl"> & { rpcEnvKey: keyof AppEnv };
 
 const STATIC_CHAINS: Record<SupportedChainKey, StaticChainConfig> = {
   ethereum: {
@@ -40,8 +42,8 @@ const STATIC_CHAINS: Record<SupportedChainKey, StaticChainConfig> = {
   },
 };
 
-export function getChains(env: AppEnv): Record<SupportedChainKey, ChainConfig> {
-  const materialize = (key: SupportedChainKey): ChainConfig => {
+export function getChains(env: AppEnv): Record<SupportedChainKey, DiscoveryChainConfig> {
+  const materialize = (key: SupportedChainKey): DiscoveryChainConfig => {
     const { rpcEnvKey, ...chain } = STATIC_CHAINS[key];
     return { ...chain, rpcUrl: String(env[rpcEnvKey]) };
   };
@@ -52,7 +54,20 @@ export function getChains(env: AppEnv): Record<SupportedChainKey, ChainConfig> {
   };
 }
 
-export function resolveChainIdentifier(identifier: string, env: AppEnv): ChainConfig {
+export function getMonitoringChains(env: AppEnv): ChainConfig[] {
+  const discoveryChains = Object.values(getChains(env));
+  const discoveryIds = new Set(discoveryChains.map((chain) => chain.chainId));
+  const extras = getExtraMonitoringChains(env);
+  for (const chain of extras) {
+    if (discoveryIds.has(chain.chainId)) {
+      throw new Error(`Monitoring chain ID ${chain.chainId} duplicates a built-in chain`);
+    }
+    discoveryIds.add(chain.chainId);
+  }
+  return [...discoveryChains, ...extras];
+}
+
+export function resolveChainIdentifier(identifier: string, env: AppEnv): DiscoveryChainConfig {
   const normalized = identifier.toLowerCase();
   const chain = Object.values(getChains(env)).find((candidate) =>
     candidate.openSeaIdentifiers.includes(normalized),
@@ -67,7 +82,7 @@ export function resolveChainIdentifier(identifier: string, env: AppEnv): ChainCo
 }
 
 export function getChainById(chainId: number, env: AppEnv): ChainConfig {
-  const chain = Object.values(getChains(env)).find((candidate) => candidate.chainId === chainId);
+  const chain = getMonitoringChains(env).find((candidate) => candidate.chainId === chainId);
   if (!chain) throw new Error(`Unsupported chain ID: ${chainId}`);
   return chain;
 }

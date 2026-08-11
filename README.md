@@ -2,11 +2,13 @@
 
 A production-oriented Telegram bot that resolves NFT collections from OpenSea, tracks inferred team-wallet activity, and lets users monitor any EVM wallet for NFT marketplace buys and sells.
 
-Initially supported EVM networks:
+OpenSea collection discovery is intentionally limited to:
 
 - Ethereum (`1`)
 - Base (`8453`)
 - Robinhood Chain (`4663`)
+
+The inferred dev address is monitored on all three by default. Additional EVM monitoring networks can be added with RPC/explorer configuration without enabling OpenSea discovery on those chains.
 
 The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the OpenSea API, Etherscan v2, and Blockscout v2.
 
@@ -19,6 +21,9 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Automatic outgoing-activity alerts for active subscribers
 - Direct wallet subscriptions across Ethereum, Base, and Robinhood Chain
 - Automatic NFT buy/sell alerts for recognized Seaport marketplace settlements
+- High-risk `ALERT` notifications for native sends above 90% of the pre-block balance
+- High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
+- Cross-chain reuse of inferred dev addresses across every configured EVM monitoring network
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
@@ -60,8 +65,12 @@ Watcher process (one runner per chain)
       └─ restart-safe block cursor
           ├─ outgoing collection-wallet transaction filter
           │   └─ activity decoder + notification fan-out
-          └─ canonical Seaport settlement filter
-              └─ ERC-721/ERC-1155 receipt decoding + buy/sell alerts
+          ├─ canonical Seaport settlement filter
+          │   └─ ERC-721/ERC-1155 receipt decoding + buy/sell alerts
+          └─ high-risk evaluator
+              ├─ pre-block native-balance percentage
+              ├─ recognized bridge call
+              └─ configured CEX destination label
 ```
 
 Important source areas:
@@ -184,6 +193,8 @@ Optional:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `BLOCKSCOUT_API_KEY` | unset | Bearer token for a protected Blockscout instance |
+| `MONITORING_CHAINS_JSON` | `[]` | Additional EVM RPC/explorer definitions used only for cross-chain wallet monitoring |
+| `CEX_ADDRESSES_JSON` | `[]` | Verified, chain-specific CEX deposit/hot-wallet labels used for high-risk alerts |
 | `WATCHER_POLL_INTERVAL_MS` | `12000` | Delay after a successful chain scan |
 | `WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS` | `10` | Blocks scanned when a chain cursor is first created |
 | `WATCHER_CONFIRMATIONS` | `1` | Head blocks held back to reduce reorg risk |
@@ -191,6 +202,26 @@ Optional:
 | `LOG_LEVEL` | `info` | Pino structured-log level |
 
 Environment values are validated at startup. Secrets are redacted from structured logs.
+
+### Additional monitoring chains
+
+OpenSea resolution remains limited to Ethereum, Base, and Robinhood Chain. To follow the inferred dev address on additional EVM chains, add their RPC and explorer information as a JSON array. For example:
+
+```dotenv
+MONITORING_CHAINS_JSON=[{"chainId":42161,"name":"Arbitrum One","rpcUrl":"https://YOUR_ARBITRUM_RPC","explorerUrl":"https://arbiscan.io","nativeSymbol":"ETH"},{"chainId":10,"name":"Optimism","rpcUrl":"https://YOUR_OPTIMISM_RPC","explorerUrl":"https://optimistic.etherscan.io","nativeSymbol":"ETH"}]
+```
+
+Any EVM chain can be added this way, but each chain requires a reliable RPC endpoint. Restart the watcher after changing the list. The watcher automatically creates a chain-specific wallet record for the same inferred dev address and links its alerts back to the original collection subscription.
+
+### CEX destination labels
+
+CEX deposit addresses are often account- and network-specific, so the project does not pretend that a small static list covers Binance, Bybit, or every exchange. Add addresses you have verified:
+
+```dotenv
+CEX_ADDRESSES_JSON=[{"chainId":1,"address":"0xYOUR_BINANCE_DEPOSIT_ADDRESS","exchange":"Binance"},{"chainId":8453,"address":"0xYOUR_BYBIT_DEPOSIT_ADDRESS","exchange":"Bybit"}]
+```
+
+The registry supports any exchange name and any configured chain. Addresses are normalized and matched against native, ERC-20, and NFT transfer recipients. The labels themselves are public configuration; never place exchange API secrets in this value.
 
 ## Run locally
 
@@ -264,6 +295,14 @@ Alerts include the collection, chain, inferred wallet, action, destination/route
 
 Direct wallet subscriptions use a separate marketplace path. For each confirmed canonical Seaport settlement, the watcher decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt. An incoming NFT transfer is recorded as `nft_buy`; an outgoing NFT transfer is recorded as `nft_sell`. Alerts include the wallet, network, NFT contract, token ID, quantity, counterparty, transaction hash, and explorer link.
 
+Collection dev-wallet notifications are promoted to `🚨🚨 ALERT: HIGH-RISK DEV ACTIVITY 🚨🚨` when at least one rule matches:
+
+- Native value sent is strictly greater than 90% of the wallet balance at the end of the preceding block.
+- The transaction matches a recognized bridge selector.
+- The final transfer recipient matches a chain-specific entry in `CEX_ADDRESSES_JSON`.
+
+The alert lists every matching reason, so a large bridge or a transfer to a configured Binance/Bybit address can show multiple warnings.
+
 ## Railway deployment
 
 Create two Railway services from the same repository and give both the same environment variables.
@@ -277,14 +316,9 @@ After deployment, verify both services are running. A healthy bot service alone 
 
 ## Adding another EVM chain
 
-1. Add the chain key to `SupportedChainKey` in `src/types/index.ts`.
-2. Add one entry in `src/blockchain/chains.ts`, including OpenSea identifiers, chain ID, RPC environment key, explorer URL/type, and native symbol.
-3. Add the RPC variable to `src/config/env.ts` and `.env.example`.
-4. If viem does not export the chain, define it in `src/blockchain/clients.ts` as Robinhood Chain is defined.
-5. Reuse `EtherscanExplorer` or `BlockscoutExplorer`; add a new adapter only when the explorer API is genuinely different.
-6. Extend the SQL `collections.chain` check and add chain-resolution tests.
+For wallet monitoring only, add the network to `MONITORING_CHAINS_JSON`; no code or migration is required. This intentionally does not allow OpenSea URLs to resolve to that network.
 
-No OpenSea URL or user input can select an arbitrary RPC or explorer URL.
+Adding a fourth OpenSea discovery network is a separate product change: extend `SupportedChainKey`, the static discovery configuration, explorer adapter support, the SQL `collections.chain` constraint, and chain-resolution tests. No OpenSea URL or Telegram input can directly supply an arbitrary RPC or explorer URL.
 
 ## Dev-wallet inference model
 
@@ -302,6 +336,10 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Internal transfers emitted by a contract call are not fully decoded yet. Receipt/log decoding and protocol-specific swap/bridge registries are the next enrichment layer.
 - Direct wallet buy/sell detection currently covers canonical Seaport 1.5/1.6 settlements (including OpenSea and other Seaport-based marketplace flows). Blur, LooksRare-native, and other non-Seaport protocols require additional verified settlement adapters.
 - Marketplace alerts identify NFT direction but do not yet calculate aggregate sale price or fees.
+- The 90% rule currently measures native currency only; ERC-20 percentage-of-token-balance analysis is not yet included.
+- Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.
+- CEX detection is only as complete as `CEX_ADDRESSES_JSON`; exchanges issue many account-specific deposit addresses and can rotate infrastructure.
+- Bridge detection uses the maintained selector registry. A new/custom bridge method must be added before it can be labeled automatically.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
@@ -309,7 +347,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 35 tests across 11 files. It covers URL and address validation, chain mapping, evidence scoring, weak-confidence fallback, factory deployment handling, subscription deduplication, outgoing filtering, send/swap/bridge decoding, direct-wallet dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 41 tests across 13 files. It covers URL and address validation, discovery versus monitoring chain mapping, cross-chain dev-wallet linkage, evidence scoring, subscription deduplication, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test

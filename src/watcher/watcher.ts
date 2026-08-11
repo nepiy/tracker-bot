@@ -1,10 +1,11 @@
 import type { ChainClient } from "../blockchain/clients.js";
 import { createChainClient } from "../blockchain/clients.js";
-import { getChains } from "../blockchain/chains.js";
+import { getMonitoringChains } from "../blockchain/chains.js";
 import type { AppEnv } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import type { Repositories } from "../database/repositories/index.js";
 import type { ChainConfig } from "../types/index.js";
+import type { WatchedWallet } from "../database/repositories/wallets.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 import { processBlock, type ProcessableBlock } from "./processBlock.js";
@@ -20,6 +21,43 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+export async function expandCollectionWallets(
+  chainId: number,
+  sourceWallets: WatchedWallet[],
+  expandedLinks: Set<string>,
+  repositories: Repositories,
+): Promise<WatchedWallet[]> {
+  const targets = new Map<string, WatchedWallet>();
+  for (const wallet of sourceWallets.filter((candidate) => candidate.chain_id === chainId)) {
+    const key = wallet.address.toLowerCase();
+    const existing = targets.get(key);
+    if (existing) existing.collectionIds.push(...wallet.collectionIds.filter((id) => !existing.collectionIds.includes(id)));
+    else targets.set(key, { ...wallet, collectionIds: [...wallet.collectionIds] });
+  }
+
+  for (const source of sourceWallets) {
+    const addressKey = source.address.toLowerCase();
+    for (const collectionId of source.collectionIds) {
+      const linkKey = `${chainId}:${addressKey}:${collectionId}`;
+      if (expandedLinks.has(linkKey)) continue;
+      let target = targets.get(addressKey);
+      if (target?.collectionIds.includes(collectionId)) {
+        expandedLinks.add(linkKey);
+        continue;
+      }
+      const stored = await repositories.wallets.upsert(chainId, source.address);
+      await repositories.wallets.linkCollection(collectionId, stored.id, "cross_chain_dev", 100, []);
+      if (!target) {
+        target = { ...stored, collectionIds: [] };
+        targets.set(addressKey, target);
+      }
+      target.collectionIds.push(collectionId);
+      expandedLinks.add(linkKey);
+    }
+  }
+  return [...targets.values()];
+}
+
 export class WalletWatcher {
   private readonly notifications: NotificationService;
 
@@ -31,13 +69,14 @@ export class WalletWatcher {
   }
 
   async run(signal: AbortSignal): Promise<void> {
-    const chains = Object.values(getChains(this.env));
+    const chains = getMonitoringChains(this.env);
     logger.info({ chains: chains.map((chain) => chain.chainId) }, "watcher starting");
     await Promise.all(chains.map((chain) => this.runChain(chain, createChainClient(chain), signal)));
   }
 
   private async runChain(chain: ChainConfig, client: ChainClient, signal: AbortSignal): Promise<void> {
     let failureDelayMs = 1_000;
+    const expandedLinks = new Set<string>();
     while (!signal.aborted) {
       try {
         const [head, allWatched, marketplaceWatched] = await Promise.all([
@@ -47,7 +86,7 @@ export class WalletWatcher {
         ]);
         const confirmations = BigInt(this.env.WATCHER_CONFIRMATIONS);
         const safeHead = head > confirmations ? head - confirmations : 0n;
-        const watched = allWatched.filter((wallet) => wallet.chain_id === chain.chainId);
+        const watched = await expandCollectionWallets(chain.chainId, allWatched, expandedLinks, this.repositories);
         let lastProcessed = await this.repositories.transactions.getLastProcessedBlock(chain.chainId);
 
         if (lastProcessed === null) {
@@ -76,6 +115,7 @@ export class WalletWatcher {
                 watched,
                 this.repositories,
                 this.notifications,
+                client,
               );
             }
             if (marketplaceWatched.length) {

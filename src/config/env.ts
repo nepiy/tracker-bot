@@ -1,6 +1,14 @@
 import "dotenv/config";
 import { z } from "zod";
 
+const jsonArrayString = z.string().refine((value) => {
+  try {
+    return Array.isArray(JSON.parse(value));
+  } catch {
+    return false;
+  }
+}, "Must be a JSON array");
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   LOG_LEVEL: z.string().default("info"),
@@ -13,6 +21,8 @@ const envSchema = z.object({
   ROBINHOOD_RPC_URL: z.url().default("https://rpc.mainnet.chain.robinhood.com"),
   ETHERSCAN_API_KEY: z.string().optional(),
   BLOCKSCOUT_API_KEY: z.string().optional(),
+  MONITORING_CHAINS_JSON: jsonArrayString.default("[]"),
+  CEX_ADDRESSES_JSON: jsonArrayString.default("[]"),
   WATCHER_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).default(12_000),
   WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS: z.coerce.number().int().min(0).default(10),
   WATCHER_CONFIRMATIONS: z.coerce.number().int().min(0).default(1),

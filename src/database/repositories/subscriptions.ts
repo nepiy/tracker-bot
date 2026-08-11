@@ -32,7 +32,7 @@ interface RawSubscription {
     contract_address: Address;
     collection_wallets?: Array<{
       relationship: string;
-      wallets: { address: Address };
+      wallets: { address: Address; chain_id: number };
     }>;
   };
 }
@@ -67,7 +67,7 @@ export class SubscriptionsRepository {
     const { data, error } = await this.db
       .from("subscriptions")
       .select(
-        "id,active,collection_id,collections!inner(opensea_slug,name,chain,chain_id,contract_address,collection_wallets(relationship,wallets!inner(address)))",
+        "id,active,collection_id,collections!inner(opensea_slug,name,chain,chain_id,contract_address,collection_wallets(relationship,wallets!inner(address,chain_id)))",
       )
       .eq("user_id", userId)
       .eq("active", true)
@@ -75,7 +75,8 @@ export class SubscriptionsRepository {
     assertDatabaseResult(error, "list subscriptions");
     return ((data ?? []) as unknown as RawSubscription[]).map((row) => {
       const tracked = row.collections.collection_wallets?.find((link) =>
-        ["likely_dev", "tracked_fallback"].includes(link.relationship),
+        ["likely_dev", "tracked_fallback"].includes(link.relationship)
+          && link.wallets.chain_id === row.collections.chain_id,
       );
       return {
         id: row.id,
@@ -108,7 +109,7 @@ export class SubscriptionsRepository {
       .from("collection_wallets")
       .select("collection_id")
       .eq("wallet_id", walletId)
-      .in("relationship", ["likely_dev", "tracked_fallback"]);
+      .in("relationship", ["likely_dev", "tracked_fallback", "cross_chain_dev"]);
     assertDatabaseResult(linkError, "find wallet collections");
     const collectionIds = [...new Set((links ?? []).map((row) => String(row.collection_id)))];
     if (collectionIds.length === 0) return [];

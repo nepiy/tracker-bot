@@ -20,6 +20,10 @@ export interface ProcessableBlock {
   transactions: readonly (ProcessableTransaction | Hash)[];
 }
 
+export interface BalanceReader {
+  getBalance(parameters: { address: Address; blockNumber: bigint }): Promise<bigint>;
+}
+
 export function isOutgoingTransaction(
   transaction: Pick<ProcessableTransaction, "from">,
   watchedAddresses: ReadonlySet<string>,
@@ -33,6 +37,7 @@ export async function processBlock(
   watchedWallets: WatchedWallet[],
   repositories: Repositories,
   notifications: NotificationService,
+  balanceReader?: BalanceReader,
 ): Promise<void> {
   const watchedByAddress = new Map(
     watchedWallets.map((wallet) => [wallet.address.toLowerCase(), wallet]),
@@ -45,12 +50,26 @@ export async function processBlock(
     const wallet = watchedByAddress.get(item.from.toLowerCase());
     if (!wallet) continue;
 
-    const claimed = await repositories.transactions.claim(chainId, item.hash);
-    if (!claimed) continue;
-
     const from = normalizeAddress(item.from);
     const to = item.to ? normalizeAddress(item.to) : null;
     const decoded = decodeActivity({ to, value: item.value, input: item.input });
+    let balanceBefore: bigint | null = null;
+    if (balanceReader && item.value > 0n) {
+      try {
+        balanceBefore = await balanceReader.getBalance({
+          address: from,
+          blockNumber: block.number > 0n ? block.number - 1n : 0n,
+        });
+      } catch (error) {
+        logger.warn(
+          { err: error, chainId, blockNumber: block.number.toString(), wallet: from },
+          "failed to read pre-block wallet balance",
+        );
+      }
+    }
+
+    const claimed = await repositories.transactions.claim(chainId, item.hash);
+    if (!claimed) continue;
     await repositories.transactions.storeActivity({
       walletId: wallet.id,
       chainId,
@@ -70,6 +89,7 @@ export async function processBlock(
       value: item.value,
       hash: item.hash,
       decoded,
+      balanceBefore,
     });
     logger.info(
       { chainId, blockNumber: block.number.toString(), txHash: item.hash, wallet: from, activityType: decoded.type },

@@ -50,4 +50,34 @@ describe("outgoing transaction filtering", () => {
     expect(storeActivity).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledTimes(1);
   });
+
+  it("reads the wallet balance from the block before an outgoing value transfer", async () => {
+    const getBalance = vi.fn(async () => 100n);
+    const send = vi.fn(async () => undefined);
+    const repositories = {
+      transactions: { claim: async () => true, storeActivity: async () => undefined },
+      subscriptions: { recipientsForWallet: async () => [] },
+    } as unknown as Repositories;
+    const block: ProcessableBlock = {
+      number: 10n,
+      timestamp: 1_700_000_000n,
+      transactions: [{
+        hash: `0x${"5".repeat(64)}` as Hash,
+        from: watched,
+        to: other,
+        value: 91n,
+        input: "0x",
+      }],
+    };
+    await processBlock(
+      1,
+      block,
+      [{ id: "wallet", chain_id: 1, address: watched, collectionIds: ["collection"] }],
+      repositories,
+      { send } as unknown as NotificationService,
+      { getBalance },
+    );
+    expect(getBalance).toHaveBeenCalledWith({ address: watched, blockNumber: 9n });
+    expect(send.mock.calls[0]![1]).toMatchObject({ balanceBefore: 100n });
+  });
 });

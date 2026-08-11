@@ -59,7 +59,7 @@ export class WalletsRepository {
       .from("collection_wallets")
       .select("collection_id,wallet_id,relationship,wallets!inner(id,chain_id,address)")
       .in("collection_id", collectionIds)
-      .in("relationship", ["likely_dev", "tracked_fallback"]);
+      .in("relationship", ["likely_dev", "tracked_fallback", "cross_chain_dev"]);
     assertDatabaseResult(error, "list watched wallets");
 
     const deduplicated = new Map<string, WatchedWallet>();

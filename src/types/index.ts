@@ -4,7 +4,7 @@ export type SupportedChainKey = "ethereum" | "base" | "robinhood";
 export type ExplorerType = "etherscan" | "blockscout";
 
 export interface ChainConfig {
-  key: SupportedChainKey;
+  key: string;
   name: string;
   chainId: number;
   openSeaIdentifiers: readonly string[];

@@ -6,6 +6,7 @@ import type { NotificationRecipient } from "../database/repositories/subscriptio
 import type { WalletNotificationRecipient } from "../database/repositories/walletSubscriptions.js";
 import type { DecodedActivity } from "../types/index.js";
 import { getChainById } from "../blockchain/chains.js";
+import { assessActivityRisk } from "./risk.js";
 
 export interface ActivityNotification {
   chainId: number;
@@ -14,6 +15,7 @@ export interface ActivityNotification {
   value: bigint;
   hash: Hash;
   decoded: DecodedActivity;
+  balanceBefore: bigint | null;
 }
 
 export interface MarketplaceNotification {
@@ -45,8 +47,10 @@ export function formatActivityAlert(
     bridge: "🌉",
     contract_interaction: "🧩",
   };
+  const risk = assessActivityRisk(activity, env);
   return [
-    "🚨 DEV WALLET ACTIVITY",
+    risk.highRisk ? "🚨🚨 ALERT: HIGH-RISK DEV ACTIVITY 🚨🚨" : "🚨 DEV WALLET ACTIVITY",
+    ...(risk.highRisk ? ["", ...risk.reasons.map((reason) => `⚠️ ${reason}`)] : []),
     "",
     `Collection: ${recipient.collectionName}`,
     `Chain: ${chain.name}`,
