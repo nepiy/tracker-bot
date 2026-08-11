@@ -7,6 +7,7 @@ import { WalletsRepository } from "./wallets.js";
 import { WalletSubscriptionsRepository } from "./walletSubscriptions.js";
 import { MarketplaceActivityRepository } from "./marketplaceActivity.js";
 import { GroupSubscriptionsRepository } from "./groupSubscriptions.js";
+import { FreeMintNotificationsRepository } from "./freeMintNotifications.js";
 
 export function createRepositories(db: SupabaseClient) {
   return {
@@ -18,6 +19,7 @@ export function createRepositories(db: SupabaseClient) {
     walletSubscriptions: new WalletSubscriptionsRepository(db),
     marketplaceActivity: new MarketplaceActivityRepository(db),
     groupSubscriptions: new GroupSubscriptionsRepository(db),
+    freeMintNotifications: new FreeMintNotificationsRepository(db),
   };
 }
 

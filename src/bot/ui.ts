@@ -33,6 +33,7 @@ export const HELP_TEXT = [
   "/wallets — list or stop tracked wallets",
   "/grouptrack <OpenSea URL> — track a collection in a group (admins only)",
   "/grouplist — manage this group's collection alerts (admins only)",
+  "/settings — customize personal notification preferences",
   "/help — show this information",
   "",
   "Wallet ownership is inferred from on-chain evidence and is not a verified real-world identity.",
@@ -48,6 +49,8 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .row()
     .text("👛 Track wallet", "menu:wallet-track")
     .text("👛 Wallets", "menu:wallets")
+    .row()
+    .text("⚙️ Settings", "menu:settings")
     .row()
     .text("❓ Help", "menu:help")
     .text("🔄 Refresh", "menu:home");

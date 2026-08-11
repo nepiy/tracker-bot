@@ -26,6 +26,7 @@ const envSchema = z.object({
   WATCHER_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).default(12_000),
   WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS: z.coerce.number().int().min(0).default(10),
   WATCHER_CONFIRMATIONS: z.coerce.number().int().min(0).default(1),
+  FREE_MINT_POLL_INTERVAL_MS: z.coerce.number().int().min(60_000).default(600_000),
   TELEGRAM_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(8),
 });
 

@@ -7,6 +7,7 @@ import type { WalletNotificationRecipient } from "../database/repositories/walle
 import type { DecodedActivity } from "../types/index.js";
 import { getChainById } from "../blockchain/chains.js";
 import { assessActivityRisk } from "./risk.js";
+import type { UpcomingFreeMint } from "../opensea/upcomingDrops.js";
 
 export interface ActivityNotification {
   chainId: number;
@@ -29,6 +30,44 @@ export interface MarketplaceNotification {
   quantity: bigint;
   standard: "ERC-721" | "ERC-1155";
   counterparty: Address | null;
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+export function formatGmtDate(date: Date): string {
+  const formatted = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return `${formatted} GMT`;
+}
+
+export function formatFreeMintAlert(mint: UpcomingFreeMint): string {
+  return [
+    "🆓 OPENSEA FREE MINT ALERT",
+    "",
+    `Collection: ${mint.name}`,
+    `Chain: ${titleCase(mint.chain)}`,
+    `Stage: ${mint.stageLabel}`,
+    `Access: ${mint.stageType === "public_sale" ? "Public" : titleCase(mint.stageType)}`,
+    "Price: FREE (network gas may apply)",
+    "",
+    `Starts: ${formatGmtDate(mint.startsAt)}`,
+    ...(mint.endsAt ? [`Ends: ${formatGmtDate(mint.endsAt)}`] : []),
+    "",
+    mint.openSeaUrl,
+  ].join("\n");
 }
 
 export function formatActivityAlert(
@@ -132,5 +171,11 @@ export class NotificationService {
         }
       }),
     );
+  }
+
+  async sendFreeMint(telegramId: number, mint: UpcomingFreeMint): Promise<void> {
+    await this.api.sendMessage(telegramId, formatFreeMintAlert(mint), {
+      link_preview_options: { is_disabled: true },
+    });
   }
 }

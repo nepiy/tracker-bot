@@ -25,6 +25,8 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
 - Cross-chain reuse of inferred dev addresses across every configured EVM monitoring network
 - Telegram group collection alerts managed only by verified group administrators
+- Opt-in OpenSea free-mint alerts for public zero-price stages starting within the next 12 hours
+- Personal `/settings` toggle, GMT mint times, access labeling, and per-user/stage deduplication
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
@@ -47,6 +49,8 @@ Open `/start`, tap **Add collection**, and send a URL such as `https://opensea.i
 The bot can also be added to a Telegram group. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
+
+Free-mint discovery is optional and disabled for every user by default. Open **Settings** or run `/settings` to enable it for your Telegram account. The watcher reads OpenSea's official upcoming-drops calendar, checks the detailed mint stages, and sends one notification when a public zero-price stage is scheduled to begin within 12 hours. Start and end times are always displayed in GMT. Network gas can still apply. Allowlist, creator-reserve, and other gated zero-price stages are intentionally excluded because they are not generally mintable by every user.
 
 For direct wallet tracking, tap **Track wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
@@ -74,6 +78,13 @@ Watcher process (one runner per chain)
               ├─ pre-block native-balance percentage
               ├─ recognized bridge call
               └─ configured CEX destination label
+
+Free-mint watcher (same watcher process)
+  └─ only polls when at least one user has opted in
+      └─ official upcoming drops + detailed mint stages
+          ├─ public, zero-price, next-12-hours filter
+          ├─ per-user/stage Supabase claim
+          └─ GMT Telegram notification
 ```
 
 Important source areas:
@@ -116,6 +127,7 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    wallets - List or stop tracked wallets
    grouptrack - Track a collection in this group (admins only)
    grouplist - List or stop this group's collection alerts (admins only)
+   settings - Customize personal notification preferences
    ```
 
 Do not put the token in source control or Railway build logs.
@@ -126,6 +138,8 @@ Create an API key using OpenSea's current developer flow and set `OPENSEA_API_KE
 
 ```text
 GET https://api.opensea.io/api/v2/collections/{slug}
+GET https://api.opensea.io/api/v2/drops?type=upcoming
+GET https://api.opensea.io/api/v2/drops/{slug}
 X-API-KEY: ...
 ```
 
@@ -170,8 +184,9 @@ The schema contains:
 - `wallet_subscriptions`
 - `marketplace_activity`
 - `group_subscriptions`
+- `free_mint_notifications`
 
-Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing and marketplace activity use transaction/log uniqueness constraints for restart-safe processing.
+The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, and free-mint notifications use transaction/log/stage uniqueness constraints for restart-safe processing.
 
 ## Environment variables
 
@@ -204,6 +219,7 @@ Optional:
 | `WATCHER_POLL_INTERVAL_MS` | `12000` | Delay after a successful chain scan |
 | `WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS` | `10` | Blocks scanned when a chain cursor is first created |
 | `WATCHER_CONFIRMATIONS` | `1` | Head blocks held back to reduce reorg risk |
+| `FREE_MINT_POLL_INTERVAL_MS` | `600000` | Opt-in OpenSea upcoming-drop scan interval; minimum 60 seconds |
 | `TELEGRAM_RATE_LIMIT_PER_MINUTE` | `8` | Per-user request limit per process |
 | `LOG_LEVEL` | `info` | Pino structured-log level |
 
@@ -255,7 +271,7 @@ npm run dev:watcher
 Both processes are required for the complete product:
 
 - The **bot** handles Telegram menus, commands, collection analysis, subscriptions, and activity queries.
-- The **watcher** polls supported chains, classifies outgoing transactions, stores activity, and sends automatic Telegram alerts.
+- The **watcher** polls supported chains, classifies outgoing transactions, stores activity, sends automatic wallet alerts, and checks OpenSea mint stages for users who opted in.
 
 Running only the bot allows collection management but does not produce real-time blockchain alerts.
 
@@ -282,6 +298,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/wallets`: list direct wallet subscriptions and stop individual network subscriptions
 - `/grouptrack <OpenSea URL>`: add a collection to the current Telegram group; group admins only
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
+- `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
 
 The dashboard keeps common actions in inline buttons: add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Collection URLs and wallet addresses use separate validated reply-input flows.
 
@@ -320,6 +337,19 @@ Collection dev-wallet notifications are promoted to `🚨🚨 ALERT: HIGH-RISK D
 
 The alert lists every matching reason, so a large bridge or a transfer to a configured Binance/Bybit address can show multiple warnings.
 
+## Optional free-mint alerts
+
+The free-mint watcher runs inside the watcher service and follows this flow:
+
+1. Load only users whose personal free-mint setting is enabled.
+2. Skip OpenSea polling entirely when no user has opted in.
+3. Read the official `upcoming` drops calendar and fetch detailed stages for drops entering the 12-hour window.
+4. Keep public stages whose price is exactly zero and whose start is after the current time.
+5. Claim each `(user, stage, start time)` once in Supabase before sending it.
+6. Display its start/end time in GMT.
+
+Use **Settings** or `/settings` to toggle the feature. A Telegram delivery failure releases the claim so a later polling cycle can retry. OpenSea's calendar is the source of truth for discovery; a creator publishing a self-serve drop does not necessarily guarantee calendar inclusion, so the bot cannot alert for a drop absent from that API.
+
 ## Railway deployment
 
 Create two Railway services from the same repository and give both the same environment variables.
@@ -357,6 +387,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.
 - CEX detection is only as complete as `CEX_ADDRESSES_JSON`; exchanges issue many account-specific deposit addresses and can rotate infrastructure.
 - Bridge detection uses the maintained selector registry. A new/custom bridge method must be added before it can be labeled automatically.
+- Free-mint discovery covers public stages returned by OpenSea's official upcoming calendar. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
@@ -364,7 +395,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 44 tests across 13 files. It covers URL and address validation, discovery versus monitoring chain mapping, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 47 tests across 14 files. It covers URL and address validation, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, GMT alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test

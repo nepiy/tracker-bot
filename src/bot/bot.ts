@@ -9,6 +9,7 @@ import { registerTrackCommand, requestOpenSeaLink } from "./commands/track.js";
 import { registerWalletCommands } from "./commands/wallet.js";
 import { registerGroupCommands } from "./commands/group.js";
 import { rateLimit } from "./middleware/rateLimit.js";
+import { registerSettingsCommand } from "./commands/settings.js";
 
 export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext> {
   const bot = new Bot<BotContext>(dependencies.env.TELEGRAM_BOT_TOKEN);
@@ -20,6 +21,7 @@ export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext
   registerStopCommand(bot, dependencies);
   registerActivityCommand(bot, dependencies);
   registerWalletCommands(bot, dependencies);
+  registerSettingsCommand(bot, dependencies);
   bot.catch((error) => {
     logger.error({ err: error.error, updateId: error.ctx.update.update_id }, "Telegram bot update failed");
   });
