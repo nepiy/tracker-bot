@@ -26,6 +26,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Cross-chain reuse of inferred dev addresses across every configured EVM monitoring network
 - Telegram group collection alerts managed only by verified group administrators
 - Opt-in OpenSea free-mint alerts for public zero-price stages starting within the next 12 hours
+- Follow-up alerts when an announced free stage changes to any positive mint price
 - Personal `/settings` toggle, GMT mint times, access labeling, and per-user/stage deduplication
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
@@ -50,7 +51,7 @@ The bot can also be added to a Telegram group. A verified group admin can subscr
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
 
-Free-mint discovery is optional and disabled for every user by default. Open **Settings** or run `/settings` to enable it for your Telegram account. The watcher reads OpenSea's official upcoming-drops calendar, checks the detailed mint stages, and sends one notification when a public zero-price stage is scheduled to begin within 12 hours. Start and end times are always displayed in GMT. Network gas can still apply. Allowlist, creator-reserve, and other gated zero-price stages are intentionally excluded because they are not generally mintable by every user.
+Free-mint discovery is optional and disabled for every user by default. Open **Settings** or run `/settings` to enable it for your Telegram account. The watcher reads OpenSea's official upcoming-drops calendar, checks the detailed mint stages, and sends one notification when a public zero-price stage is scheduled to begin within 12 hours. It persists the observed stage price; if that same stage later changes from free to any positive amount, the bot sends a `MINT PRICE CHANGED` warning on the next polling cycle. The warning shows the token amount and an approximate USD value when OpenSea provides a usable quote. Start and end times are always displayed in GMT. Network gas can still apply. Allowlist, creator-reserve, and other gated zero-price stages are intentionally excluded because they are not generally mintable by every user.
 
 For direct wallet tracking, tap **Track wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
@@ -82,9 +83,9 @@ Watcher process (one runner per chain)
 Free-mint watcher (same watcher process)
   └─ only polls when at least one user has opted in
       └─ official upcoming drops + detailed mint stages
-          ├─ public, zero-price, next-12-hours filter
-          ├─ per-user/stage Supabase claim
-          └─ GMT Telegram notification
+          ├─ persistent public-stage price snapshot
+          ├─ free alert + per-user/stage claim
+          └─ free-to-paid transition alert + token/USD formatting
 ```
 
 Important source areas:
@@ -140,6 +141,7 @@ Create an API key using OpenSea's current developer flow and set `OPENSEA_API_KE
 GET https://api.opensea.io/api/v2/collections/{slug}
 GET https://api.opensea.io/api/v2/drops?type=upcoming
 GET https://api.opensea.io/api/v2/drops/{slug}
+GET https://api.opensea.io/api/v2/chain/{chain}/token/{address}
 X-API-KEY: ...
 ```
 
@@ -185,8 +187,11 @@ The schema contains:
 - `marketplace_activity`
 - `group_subscriptions`
 - `free_mint_notifications`
+- `mint_stage_prices`
+- `mint_price_change_events`
+- `mint_price_change_notifications`
 
-The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, and free-mint notifications use transaction/log/stage uniqueness constraints for restart-safe processing.
+The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, free-mint notifications, observed stage prices, and price-transition notifications use transaction/log/stage/version uniqueness constraints for restart-safe processing.
 
 ## Environment variables
 
@@ -344,11 +349,14 @@ The free-mint watcher runs inside the watcher service and follows this flow:
 1. Load only users whose personal free-mint setting is enabled.
 2. Skip OpenSea polling entirely when no user has opted in.
 3. Read the official `upcoming` drops calendar and fetch detailed stages for drops entering the 12-hour window.
-4. Keep public stages whose price is exactly zero and whose start is after the current time.
-5. Claim each `(user, stage, start time)` once in Supabase before sending it.
-6. Display its start/end time in GMT.
+4. Persist every public stage's raw base-unit price and currency address.
+5. For a free stage, claim each `(user, stage, start time)` once before sending the initial alert.
+6. Compare later observations with the stored price and persist an event for only an exact `0 → positive` transition.
+7. Re-read durable transition events and claim each `(user, stage, start time, price version)` once before sending `MINT PRICE CHANGED`.
+8. Resolve the payment token through OpenSea so the warning can show token decimals, symbol, and approximate USD value.
+9. Display start/end times in GMT.
 
-Use **Settings** or `/settings` to toggle the feature. A Telegram delivery failure releases the claim so a later polling cycle can retry. OpenSea's calendar is the source of truth for discovery; a creator publishing a self-serve drop does not necessarily guarantee calendar inclusion, so the bot cannot alert for a drop absent from that API.
+Use **Settings** or `/settings` to toggle both the initial free-mint and follow-up price-change alerts. A Telegram delivery failure releases the applicable claim so a later polling cycle can retry. A transition is announced only after the watcher previously observed that exact stage as free; a stage first discovered as paid does not produce a misleading change alert. OpenSea's calendar is the source of truth for discovery; a creator publishing a self-serve drop does not necessarily guarantee calendar inclusion, so the bot cannot alert for a drop absent from that API.
 
 ## Railway deployment
 
@@ -387,7 +395,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.
 - CEX detection is only as complete as `CEX_ADDRESSES_JSON`; exchanges issue many account-specific deposit addresses and can rotate infrastructure.
 - Bridge detection uses the maintained selector registry. A new/custom bridge method must be added before it can be labeled automatically.
-- Free-mint discovery covers public stages returned by OpenSea's official upcoming calendar. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded.
+- Free-mint discovery and price-change detection cover public stages returned by OpenSea's official upcoming calendar while they remain in the 12-hour window. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded. Approximate USD values depend on OpenSea's current token quote and can move after the alert.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
@@ -395,7 +403,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 47 tests across 14 files. It covers URL and address validation, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, GMT alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 51 tests across 15 files. It covers URL and address validation, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test

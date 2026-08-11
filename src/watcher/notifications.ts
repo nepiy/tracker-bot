@@ -1,5 +1,5 @@
 import { Api } from "grammy";
-import { formatEther, type Address, type Hash } from "viem";
+import { formatEther, formatUnits, type Address, type Hash } from "viem";
 import type { AppEnv } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import type { NotificationRecipient } from "../database/repositories/subscriptions.js";
@@ -7,7 +7,11 @@ import type { WalletNotificationRecipient } from "../database/repositories/walle
 import type { DecodedActivity } from "../types/index.js";
 import { getChainById } from "../blockchain/chains.js";
 import { assessActivityRisk } from "./risk.js";
-import type { UpcomingFreeMint } from "../opensea/upcomingDrops.js";
+import type {
+  OpenSeaTokenDetails,
+  UpcomingFreeMint,
+  UpcomingMintStage,
+} from "../opensea/upcomingDrops.js";
 
 export interface ActivityNotification {
   chainId: number;
@@ -67,6 +71,56 @@ export function formatFreeMintAlert(mint: UpcomingFreeMint): string {
     ...(mint.endsAt ? [`Ends: ${formatGmtDate(mint.endsAt)}`] : []),
     "",
     mint.openSeaUrl,
+  ].join("\n");
+}
+
+export interface MintPriceChangeNotification {
+  stage: UpcomingMintStage;
+  token: OpenSeaTokenDetails | null;
+}
+
+export function formatPaidMintPrice(
+  price: string,
+  currencyAddress: string,
+  token: OpenSeaTokenDetails | null,
+): string {
+  if (!token) {
+    return `${price} base units (${currencyAddress.slice(0, 6)}...${currencyAddress.slice(-4)})`;
+  }
+  const amount = formatUnits(BigInt(price), token.decimals);
+  const usdRate = token.usdPrice === null ? Number.NaN : Number(token.usdPrice);
+  const usdValue = Number(amount) * usdRate;
+  let usdLabel = "";
+  if (Number.isFinite(usdValue) && usdValue > 0) {
+    usdLabel = usdValue < 0.01
+      ? " (≈ <$0.01)"
+      : ` (≈ ${new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 6,
+      }).format(usdValue)})`;
+  }
+  return `${amount} ${token.symbol}${usdLabel}`;
+}
+
+export function formatMintPriceChangeAlert(notification: MintPriceChangeNotification): string {
+  const { stage, token } = notification;
+  return [
+    "🚨 OPENSEA MINT PRICE CHANGED",
+    "",
+    `Collection: ${stage.name}`,
+    `Chain: ${titleCase(stage.chain)}`,
+    `Stage: ${stage.stageLabel}`,
+    "",
+    "Previous price: FREE",
+    `New price: ${formatPaidMintPrice(stage.price, stage.currencyAddress, token)}`,
+    "Status: This mint is no longer free.",
+    "",
+    `Starts: ${formatGmtDate(stage.startsAt)}`,
+    ...(stage.endsAt ? [`Ends: ${formatGmtDate(stage.endsAt)}`] : []),
+    "",
+    stage.openSeaUrl,
   ].join("\n");
 }
 
@@ -175,6 +229,15 @@ export class NotificationService {
 
   async sendFreeMint(telegramId: number, mint: UpcomingFreeMint): Promise<void> {
     await this.api.sendMessage(telegramId, formatFreeMintAlert(mint), {
+      link_preview_options: { is_disabled: true },
+    });
+  }
+
+  async sendMintPriceChange(
+    telegramId: number,
+    notification: MintPriceChangeNotification,
+  ): Promise<void> {
+    await this.api.sendMessage(telegramId, formatMintPriceChangeAlert(notification), {
       link_preview_options: { is_disabled: true },
     });
   }

@@ -9,6 +9,7 @@ interface OpenSeaDropStageResponse {
   stage_type?: string;
   label?: string;
   price?: string;
+  price_currency_address?: string;
   start_time?: string;
   end_time?: string;
 }
@@ -30,7 +31,7 @@ interface OpenSeaDropDetailsResponse extends OpenSeaDropSummaryResponse {
   stages?: OpenSeaDropStageResponse[];
 }
 
-export interface UpcomingFreeMint {
+export interface UpcomingMintStage {
   slug: string;
   name: string;
   chain: string;
@@ -38,8 +39,25 @@ export interface UpcomingFreeMint {
   stageId: string;
   stageType: string;
   stageLabel: string;
+  price: string;
+  currencyAddress: string;
   startsAt: Date;
   endsAt: Date | null;
+}
+
+export type UpcomingFreeMint = UpcomingMintStage;
+
+interface OpenSeaTokenResponse {
+  symbol?: string;
+  decimals?: number;
+  usd_price?: string;
+  usdPrice?: string;
+}
+
+export interface OpenSeaTokenDetails {
+  symbol: string;
+  decimals: number;
+  usdPrice: string | null;
 }
 
 async function fetchOpenSeaJson<T>(
@@ -75,10 +93,16 @@ function startsWithin(stage: OpenSeaDropStageResponse | null | undefined, now: D
   return Boolean(startsAt && startsAt > now && startsAt <= cutoff);
 }
 
-function isPublicFreeMint(stage: OpenSeaDropStageResponse): boolean {
+function isPublicMintStage(stage: OpenSeaDropStageResponse): boolean {
   return stage.stage_type === "public_sale"
     && typeof stage.price === "string"
-    && /^0+$/.test(stage.price);
+    && /^\d+$/.test(stage.price)
+    && typeof stage.price_currency_address === "string"
+    && /^0x[0-9a-fA-F]{40}$/.test(stage.price_currency_address);
+}
+
+export function isFreeMintPrice(price: string): boolean {
+  return /^0+$/.test(price);
 }
 
 async function inChunks<T, R>(
@@ -93,12 +117,12 @@ async function inChunks<T, R>(
   return results;
 }
 
-export async function findUpcomingFreeMints(
+export async function findUpcomingMintStages(
   apiKey: string,
   now = new Date(),
   windowHours = 12,
   fetcher: typeof fetch = fetch,
-): Promise<UpcomingFreeMint[]> {
+): Promise<UpcomingMintStage[]> {
   const cutoff = new Date(now.getTime() + windowHours * 60 * 60 * 1_000);
   const candidates = new Map<string, OpenSeaDropSummaryResponse>();
   let cursor: string | null = null;
@@ -132,14 +156,14 @@ export async function findUpcomingFreeMints(
     return { slug, summary, detail };
   });
 
-  const unique = new Map<string, UpcomingFreeMint>();
+  const unique = new Map<string, UpcomingMintStage>();
   for (const { slug, summary, detail } of details) {
     const stages = Array.isArray(detail.stages) ? detail.stages : [];
     for (const stage of stages) {
       const startsAt = parseDate(stage.start_time);
-      if (!stage.uuid || !startsAt || !startsWithin(stage, now, cutoff) || !isPublicFreeMint(stage)) continue;
+      if (!stage.uuid || !startsAt || !startsWithin(stage, now, cutoff) || !isPublicMintStage(stage)) continue;
       const endsAt = parseDate(stage.end_time);
-      const mint: UpcomingFreeMint = {
+      const mint: UpcomingMintStage = {
         slug,
         name: detail.collection_name ?? summary.collection_name ?? slug,
         chain: detail.chain ?? summary.chain ?? "unknown",
@@ -147,6 +171,8 @@ export async function findUpcomingFreeMints(
         stageId: stage.uuid,
         stageType: stage.stage_type ?? "unknown",
         stageLabel: stage.label?.trim() || "Mint stage",
+        price: stage.price!,
+        currencyAddress: stage.price_currency_address!.toLowerCase(),
         startsAt,
         endsAt,
       };
@@ -155,4 +181,36 @@ export async function findUpcomingFreeMints(
   }
 
   return [...unique.values()].sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+}
+
+export async function findUpcomingFreeMints(
+  apiKey: string,
+  now = new Date(),
+  windowHours = 12,
+  fetcher: typeof fetch = fetch,
+): Promise<UpcomingFreeMint[]> {
+  const stages = await findUpcomingMintStages(apiKey, now, windowHours, fetcher);
+  return stages.filter((stage) => isFreeMintPrice(stage.price));
+}
+
+export async function getOpenSeaTokenDetails(
+  apiKey: string,
+  chain: string,
+  address: string,
+  fetcher: typeof fetch = fetch,
+): Promise<OpenSeaTokenDetails> {
+  const token = await fetchOpenSeaJson<OpenSeaTokenResponse>(
+    `/chain/${encodeURIComponent(chain)}/token/${encodeURIComponent(address)}`,
+    apiKey,
+    fetcher,
+  );
+  if (!token.symbol || !Number.isInteger(token.decimals) || token.decimals! < 0 || token.decimals! > 255) {
+    throw new ExternalServiceError("OpenSea returned incomplete payment-token metadata", "opensea", false);
+  }
+  const usdPrice = token.usd_price ?? token.usdPrice;
+  return {
+    symbol: token.symbol,
+    decimals: token.decimals!,
+    usdPrice: typeof usdPrice === "string" && usdPrice ? usdPrice : null,
+  };
 }

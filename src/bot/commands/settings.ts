@@ -9,6 +9,7 @@ export function formatSettings(freeMintAlertsEnabled: boolean): string {
     `OpenSea free mint alerts: ${freeMintAlertsEnabled ? "🟢 ON" : "⚪ OFF"}`,
     "",
     "When enabled, the bot sends one alert for each public, zero-price OpenSea mint stage starting within the next 12 hours.",
+    "If an announced free stage changes to a paid price, you also receive a price-change warning.",
     "Times are shown in GMT. Network gas is not included in the mint price.",
     "",
     "This is a personal setting and is off by default.",

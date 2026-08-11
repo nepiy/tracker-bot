@@ -8,7 +8,7 @@ import { formatWalletSubscriptions } from "../src/bot/commands/wallet.js";
 import { formatGroupSubscriptions } from "../src/bot/commands/group.js";
 import { isAdminStatus } from "../src/bot/groupAdmin.js";
 import { formatSettings } from "../src/bot/commands/settings.js";
-import { formatFreeMintAlert } from "../src/watcher/notifications.js";
+import { formatFreeMintAlert, formatMintPriceChangeAlert } from "../src/watcher/notifications.js";
 
 const subscription: SubscriptionView = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -111,6 +111,7 @@ describe("Telegram collection dashboard", () => {
   it("shows the opt-in free mint preference and GMT notification time", () => {
     expect(formatSettings(false)).toContain("⚪ OFF");
     expect(formatSettings(true)).toContain("🟢 ON");
+    expect(formatSettings(true)).toContain("price-change warning");
     const alert = formatFreeMintAlert({
       slug: "free-public-drop",
       name: "Free Public Drop",
@@ -119,6 +120,8 @@ describe("Telegram collection dashboard", () => {
       stageId: "public-free",
       stageType: "public_sale",
       stageLabel: "Public mint",
+      price: "0",
+      currencyAddress: "0x0000000000000000000000000000000000000000",
       startsAt: new Date("2026-08-11T14:05:00Z"),
       endsAt: new Date("2026-08-11T16:00:00Z"),
     });
@@ -126,5 +129,28 @@ describe("Telegram collection dashboard", () => {
     expect(alert).toContain("Price: FREE");
     expect(alert).toContain("11 Aug 2026, 14:05 GMT");
     expect(alert).toContain("Access: Public");
+  });
+
+  it("formats a free-to-paid mint transition with token and USD values", () => {
+    const alert = formatMintPriceChangeAlert({
+      stage: {
+        slug: "changed-mint",
+        name: "Changed Mint",
+        chain: "base",
+        openSeaUrl: "https://opensea.io/collection/changed-mint",
+        stageId: "changed-stage",
+        stageType: "public_sale",
+        stageLabel: "Public mint",
+        price: "10000",
+        currencyAddress: "0x0000000000000000000000000000000000000001",
+        startsAt: new Date("2026-08-11T15:00:00Z"),
+        endsAt: null,
+      },
+      token: { symbol: "USDC", decimals: 6, usdPrice: "1" },
+    });
+    expect(alert).toContain("MINT PRICE CHANGED");
+    expect(alert).toContain("Previous price: FREE");
+    expect(alert).toContain("New price: 0.01 USDC (≈ $0.01)");
+    expect(alert).toContain("11 Aug 2026, 15:00 GMT");
   });
 });
