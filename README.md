@@ -338,7 +338,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
 - `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
 
-The dashboard keeps common actions in inline buttons: add the bot to a group, research a collection, create or manage floor targets, add a collection or wallet, inspect **Tracking Collections** and **Tracking Wallets**, review activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
+The dashboard keeps common actions in inline buttons: add the bot to a group, research a collection, create or manage floor targets, add a collection or wallet, use **Tracking Collection** and **Tracking Wallet** to inspect active subscriptions, review activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 
