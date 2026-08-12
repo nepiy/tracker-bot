@@ -6,6 +6,3 @@ cmds = ["npm ci --include=dev"]
 
 [phases.build]
 cmds = ["npm run build"]
-
-[start]
-cmd = "npm run start:bot"
