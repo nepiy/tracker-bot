@@ -12,6 +12,7 @@ export const MAIN_MENU_TEXT = [
   "📡 Collection tracking — monitor the inferred dev/team wallet for sends, swaps, bridges, and high-risk moves.",
   "👛 Wallet tracking — follow NFT marketplace buys and sells for any EVM wallet.",
   "👥 Group tracking — add the bot to a group where admins control collection alerts.",
+  "📋 Active tracking — see every personal monitor and alert setting in one place.",
   "",
   "Networks: Ethereum • Base • Robinhood Chain",
   "",
@@ -52,12 +53,15 @@ export const HELP_TEXT = [
   "/grouptrack <OpenSea URL> — track a collection in a group (admins only)",
   "/grouplist — manage this group's collection alerts (admins only)",
   "/settings — customize personal notification preferences",
+  "/active — view all personal tracking and alert settings together",
   "/help — show this information",
 ].join("\n");
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("👥 Add to Group", "menu:add-group")
+    .row()
+    .text("📋 Active Tracking", "menu:active-tracking")
     .row()
     .text("🔎 Research NFT", "menu:info")
     .text("🎯 Floor Alerts", "menu:price-alerts")

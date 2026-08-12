@@ -9,6 +9,7 @@ import { ADD_TO_GROUP_TEXT, formatGroupSubscriptions, groupInstallUrl } from "..
 import { isAdminStatus } from "../src/bot/groupAdmin.js";
 import { formatSettings } from "../src/bot/commands/settings.js";
 import { formatFreeMintAlert, formatMintPriceChangeAlert } from "../src/watcher/notifications.js";
+import { activeTrackingKeyboard, formatActiveTracking } from "../src/bot/commands/activeTracking.js";
 
 const subscription: SubscriptionView = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -33,12 +34,65 @@ describe("Telegram collection dashboard", () => {
 
     expect(mainMenuKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
       ["👥 Add to Group"],
+      ["📋 Active Tracking"],
       ["🔎 Research NFT", "🎯 Floor Alerts"],
       ["➕ Add Collection", "📡 Tracking Collection"],
       ["👛 Add Wallet", "🗂 Tracking Wallet"],
       ["⚡ Recent Activity", "⚙️ Alert Settings"],
       ["🛑 Stop Collection", "❓ Guide"],
       ["🔄 Refresh Dashboard"],
+    ]);
+  });
+
+  it("summarizes every personal monitor and groups wallet networks", () => {
+    const wallet = subscription.walletAddress!;
+    const text = formatActiveTracking({
+      collections: [subscription],
+      wallets: [
+        { id: "wallet-eth", walletId: "eth", chainId: 1, address: wallet, active: true },
+        { id: "wallet-base", walletId: "base", chainId: 8453, address: wallet, active: true },
+      ],
+      priceAlerts: [{
+        id: "price-alert",
+        userId: "user",
+        slug: subscription.slug,
+        collectionName: subscription.name,
+        chain: subscription.chain,
+        contractAddress: subscription.contractAddress,
+        targetPrice: "0.001000",
+        initialFloorPrice: "0.002",
+        lastFloorPrice: "0.0015",
+        currencySymbol: "ETH",
+        direction: "at_or_below",
+        status: "active",
+        claimedAt: null,
+        createdAt: "2026-08-12T00:00:00.000Z",
+      }],
+      freeMintAlertsEnabled: true,
+    });
+
+    expect(text).toContain("YOUR ACTIVE TRACKING");
+    expect(text).toContain("📡 Collections: 1");
+    expect(text).toContain("👛 Wallets: 1 address • 2 network monitors");
+    expect(text).toContain("0x57ff...004f — Ethereum, Base");
+    expect(text).toContain("FishBroker — floor ≤ 0.001 ETH");
+    expect(text).toContain("Free-mint alerts: 🟢 ON");
+    expect(text).toContain("managed inside each Telegram group");
+  });
+
+  it("guides an empty active-tracking dashboard to each setup path", () => {
+    expect(formatActiveTracking({
+      collections: [],
+      wallets: [],
+      priceAlerts: [],
+      freeMintAlertsEnabled: false,
+    })).toContain("Nothing is active yet");
+    expect(activeTrackingKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
+      ["📡 Collections", "👛 Wallets"],
+      ["🎯 Floor Alerts", "⚙️ Alert Settings"],
+      ["➕ Add Collection", "➕ Add Wallet"],
+      ["⚡ Recent Activity"],
+      ["🔄 Refresh", "🏠 Main Menu"],
     ]);
   });
 
