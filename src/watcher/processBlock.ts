@@ -70,30 +70,40 @@ export async function processBlock(
 
     const claimed = await repositories.transactions.claim(chainId, item.hash);
     if (!claimed) continue;
-    await repositories.transactions.storeActivity({
-      walletId: wallet.id,
-      chainId,
-      txHash: item.hash,
-      blockNumber: block.number,
-      from,
-      to,
-      value: item.value,
-      timestamp: new Date(Number(block.timestamp) * 1_000),
-      decoded,
-    });
-    const [personalRecipients, groupRecipients] = await Promise.all([
-      repositories.subscriptions.recipientsForWallet(wallet.id),
-      repositories.groupSubscriptions.recipientsForWallet(wallet.id),
-    ]);
-    await notifications.send([...personalRecipients, ...groupRecipients], {
-      chainId,
-      wallet: from,
-      to,
-      value: item.value,
-      hash: item.hash,
-      decoded,
-      balanceBefore,
-    });
+    try {
+      await repositories.transactions.storeActivity({
+        walletId: wallet.id,
+        chainId,
+        txHash: item.hash,
+        blockNumber: block.number,
+        from,
+        to,
+        value: item.value,
+        timestamp: new Date(Number(block.timestamp) * 1_000),
+        decoded,
+      });
+      const [personalRecipients, groupRecipients] = await Promise.all([
+        repositories.subscriptions.recipientsForWallet(wallet.id),
+        repositories.groupSubscriptions.recipientsForWallet(wallet.id),
+      ]);
+      await notifications.send([...personalRecipients, ...groupRecipients], {
+        chainId,
+        wallet: from,
+        to,
+        value: item.value,
+        hash: item.hash,
+        decoded,
+        balanceBefore,
+      });
+    } catch (error) {
+      await repositories.transactions.releaseClaim(chainId, item.hash).catch((releaseError) => {
+        logger.error(
+          { err: releaseError, chainId, txHash: item.hash },
+          "failed to release transaction after notification enqueue failure",
+        );
+      });
+      throw error;
+    }
     logger.info(
       { chainId, blockNumber: block.number.toString(), txHash: item.hash, wallet: from, activityType: decoded.type },
       "processed outgoing wallet transaction",

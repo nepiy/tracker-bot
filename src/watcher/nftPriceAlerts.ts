@@ -35,7 +35,7 @@ export class NftPriceAlertWatcher {
     private readonly env: AppEnv,
     private readonly repositories: Repositories,
   ) {
-    this.notifications = new NotificationService(env);
+    this.notifications = new NotificationService(env, repositories.telegramOutbox);
   }
 
   async pollOnce(now = new Date()): Promise<void> {
@@ -117,7 +117,7 @@ export class NftPriceAlertWatcher {
         );
         logger.info(
           { alertId: alert.id, telegramId: alert.telegramId, slug, floor: floorValue },
-          "delivered and expired NFT floor price alert",
+          "queued and expired NFT floor price alert",
         );
       }));
       for (const outcome of outcomes) {

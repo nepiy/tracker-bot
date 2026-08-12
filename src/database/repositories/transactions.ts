@@ -39,6 +39,15 @@ export class TransactionsRepository {
     return true;
   }
 
+  async releaseClaim(chainId: number, txHash: Hash): Promise<void> {
+    const { error } = await this.db
+      .from("processed_transactions")
+      .delete()
+      .eq("chain_id", chainId)
+      .eq("tx_hash", txHash.toLowerCase());
+    assertDatabaseResult(error, "release transaction claim");
+  }
+
   async storeActivity(activity: ActivityInsert): Promise<void> {
     const { error } = await this.db.from("wallet_activity").upsert(
       {

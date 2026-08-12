@@ -1,7 +1,6 @@
 import { Api } from "grammy";
 import { formatEther, formatUnits, type Address, type Hash } from "viem";
 import type { AppEnv } from "../config/env.js";
-import { logger } from "../config/logger.js";
 import type { NotificationRecipient } from "../database/repositories/subscriptions.js";
 import type { WalletNotificationRecipient } from "../database/repositories/walletSubscriptions.js";
 import type { DecodedActivity } from "../types/index.js";
@@ -13,6 +12,7 @@ import type {
   UpcomingMintStage,
 } from "../opensea/upcomingDrops.js";
 import type { NftPriceAlertRecipient } from "../database/repositories/nftPriceAlerts.js";
+import type { TelegramOutboxRepository } from "../database/repositories/telegramOutbox.js";
 
 export interface ActivityNotification {
   chainId: number;
@@ -214,70 +214,87 @@ export function formatMarketplaceAlert(activity: MarketplaceNotification, env: A
 export class NotificationService {
   private readonly api: Api;
 
-  constructor(private readonly env: AppEnv) {
+  constructor(
+    private readonly env: AppEnv,
+    private readonly outbox?: TelegramOutboxRepository,
+  ) {
     this.api = new Api(env.TELEGRAM_BOT_TOKEN, { timeoutSeconds: 15 });
   }
 
   async send(recipients: NotificationRecipient[], activity: ActivityNotification): Promise<void> {
+    if (!this.outbox) throw new Error("Telegram outbox is required for activity notifications");
     const unique = new Map<string, NotificationRecipient>();
     for (const recipient of recipients) {
       unique.set(`${recipient.telegramId}:${recipient.collectionId}`, recipient);
     }
-    await Promise.allSettled(
-      [...unique.values()].map(async (recipient) => {
-        try {
-          await this.api.sendMessage(recipient.telegramId, formatActivityAlert(recipient, activity, this.env), {
-            link_preview_options: { is_disabled: true },
-          });
-        } catch (error) {
-          logger.error(
-            { err: error, telegramId: recipient.telegramId, chainId: activity.chainId, txHash: activity.hash },
-            "Telegram notification failed",
-          );
-        }
-      }),
-    );
+    await this.outbox.enqueue([...unique.values()].map((recipient) => ({
+      eventKey: `activity:${activity.chainId}:${activity.hash.toLowerCase()}:${recipient.telegramId}:${recipient.collectionId}`,
+      telegramId: recipient.telegramId,
+      messageText: formatActivityAlert(recipient, activity, this.env),
+    })));
   }
 
   async sendMarketplace(recipients: WalletNotificationRecipient[], activity: MarketplaceNotification): Promise<void> {
+    if (!this.outbox) throw new Error("Telegram outbox is required for marketplace notifications");
     const unique = new Map(recipients.map((recipient) => [recipient.telegramId, recipient]));
-    await Promise.allSettled(
-      [...unique.values()].map(async (recipient) => {
-        try {
-          await this.api.sendMessage(recipient.telegramId, formatMarketplaceAlert(activity, this.env), {
-            link_preview_options: { is_disabled: true },
-          });
-        } catch (error) {
-          logger.error(
-            { err: error, telegramId: recipient.telegramId, chainId: activity.chainId, txHash: activity.hash },
-            "Telegram marketplace notification failed",
-          );
-        }
-      }),
-    );
+    await this.outbox.enqueue([...unique.values()].map((recipient) => ({
+      eventKey: [
+        "marketplace",
+        activity.chainId,
+        activity.hash.toLowerCase(),
+        recipient.subscriptionId,
+        activity.type,
+        activity.nftContract.toLowerCase(),
+        activity.tokenId,
+      ].join(":"),
+      telegramId: recipient.telegramId,
+      messageText: formatMarketplaceAlert(activity, this.env),
+    })));
+  }
+
+  async sendText(telegramId: number, messageText: string): Promise<void> {
+    await this.api.sendMessage(telegramId, messageText, {
+      link_preview_options: { is_disabled: true },
+    });
   }
 
   async sendFreeMint(telegramId: number, mint: UpcomingFreeMint): Promise<void> {
-    await this.api.sendMessage(telegramId, formatFreeMintAlert(mint), {
-      link_preview_options: { is_disabled: true },
-    });
+    if (!this.outbox) throw new Error("Telegram outbox is required for free mint notifications");
+    await this.outbox.enqueue([{
+      eventKey: `free-mint:${mint.stageId}:${mint.startsAt.toISOString()}:${telegramId}`,
+      telegramId,
+      messageText: formatFreeMintAlert(mint),
+    }]);
   }
 
   async sendMintPriceChange(
     telegramId: number,
     notification: MintPriceChangeNotification,
+    priceVersion: number,
   ): Promise<void> {
-    await this.api.sendMessage(telegramId, formatMintPriceChangeAlert(notification), {
-      link_preview_options: { is_disabled: true },
-    });
+    if (!this.outbox) throw new Error("Telegram outbox is required for mint price-change notifications");
+    await this.outbox.enqueue([{
+      eventKey: [
+        "mint-price-change",
+        notification.stage.stageId,
+        notification.stage.startsAt.toISOString(),
+        priceVersion,
+        telegramId,
+      ].join(":"),
+      telegramId,
+      messageText: formatMintPriceChangeAlert(notification),
+    }]);
   }
 
   async sendNftPriceTarget(
     telegramId: number,
     notification: NftPriceTargetNotification,
   ): Promise<void> {
-    await this.api.sendMessage(telegramId, formatNftPriceTargetAlert(notification), {
-      link_preview_options: { is_disabled: true },
-    });
+    if (!this.outbox) throw new Error("Telegram outbox is required for NFT price-target notifications");
+    await this.outbox.enqueue([{
+      eventKey: `nft-price-target:${notification.alert.id}:${telegramId}`,
+      telegramId,
+      messageText: formatNftPriceTargetAlert(notification),
+    }]);
   }
 }

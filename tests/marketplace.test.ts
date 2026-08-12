@@ -103,4 +103,47 @@ describe("marketplace NFT activity", () => {
       tokenId: 42n,
     });
   });
+
+  it("releases marketplace deduplication when notification enqueueing fails", async () => {
+    const release = vi.fn(async () => undefined);
+    const client = {
+      getLogs: async () => [{ transactionHash: hash }],
+      getTransactionReceipt: async () => ({
+        status: "success",
+        logs: [{
+          address: collection,
+          data: "0x",
+          topics: [
+            toEventSelector("Transfer(address,address,uint256)"),
+            addressTopic(seller),
+            addressTopic(wallet),
+            pad("0x2a", { size: 32 }),
+          ],
+          logIndex: 9,
+        }],
+      }),
+    } as unknown as ChainClient;
+    const repositories = {
+      marketplaceActivity: { claim: async () => true, release },
+    } as unknown as Repositories;
+    const watched: MarketplaceWatchedWallet[] = [{
+      id: "wallet-id",
+      chain_id: 1,
+      address: wallet,
+      recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+    }];
+
+    await expect(processMarketplaceBlock(
+      1,
+      100n,
+      1_700_000_000n,
+      watched,
+      client,
+      repositories,
+      { sendMarketplace: vi.fn(async () => { throw new Error("outbox unavailable"); }) } as unknown as NotificationService,
+    )).rejects.toThrow("outbox unavailable");
+
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release.mock.calls[0]![0]).toMatchObject({ type: "nft_buy", txHash: hash });
+  });
 });

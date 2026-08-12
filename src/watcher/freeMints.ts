@@ -10,6 +10,8 @@ import {
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 
+const STALE_CLAIM_MS = 60 * 1_000;
+
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
@@ -27,10 +29,15 @@ export class FreeMintWatcher {
     private readonly env: AppEnv,
     private readonly repositories: Repositories,
   ) {
-    this.notifications = new NotificationService(env);
+    this.notifications = new NotificationService(env, repositories.telegramOutbox);
   }
 
   async pollOnce(now = new Date()): Promise<void> {
+    const staleBefore = new Date(now.getTime() - STALE_CLAIM_MS);
+    await Promise.all([
+      this.repositories.freeMintNotifications.releaseStaleClaims(staleBefore),
+      this.repositories.mintPriceChangeNotifications.releaseStaleClaims(staleBefore),
+    ]);
     const recipients = await this.repositories.users.listFreeMintAlertRecipients();
     if (!recipients.length) return;
 
@@ -122,7 +129,7 @@ export class FreeMintWatcher {
       );
       if (!notificationId) return;
       try {
-        await this.notifications.sendMintPriceChange(recipient.telegramId, { stage, token });
+        await this.notifications.sendMintPriceChange(recipient.telegramId, { stage, token }, priceVersion);
       } catch (error) {
         await this.repositories.mintPriceChangeNotifications.release(notificationId).catch((releaseError) => {
           logger.error({ err: releaseError, notificationId }, "failed to release mint price-change claim");

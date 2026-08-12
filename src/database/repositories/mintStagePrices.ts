@@ -175,11 +175,14 @@ export class MintPriceChangeNotificationsRepository {
   }
 
   async markDelivered(id: string): Promise<void> {
-    const { error } = await this.db
+    const { data, error } = await this.db
       .from("mint_price_change_notifications")
       .update({ delivered_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .is("delivered_at", null)
+      .select("id");
     assertDatabaseResult(error, "mark mint price change notification delivered");
+    if (data?.length !== 1) throw new Error("Mint price-change notification delivery state was not updated");
   }
 
   async release(id: string): Promise<void> {
@@ -189,5 +192,14 @@ export class MintPriceChangeNotificationsRepository {
       .eq("id", id)
       .is("delivered_at", null);
     assertDatabaseResult(error, "release mint price change notification claim");
+  }
+
+  async releaseStaleClaims(before: Date): Promise<void> {
+    const { error } = await this.db
+      .from("mint_price_change_notifications")
+      .delete()
+      .is("delivered_at", null)
+      .lt("claimed_at", before.toISOString());
+    assertDatabaseResult(error, "release stale mint price-change notification claims");
   }
 }

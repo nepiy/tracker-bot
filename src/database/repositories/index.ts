@@ -13,6 +13,7 @@ import {
   MintStagePricesRepository,
 } from "./mintStagePrices.js";
 import { NftPriceAlertsRepository } from "./nftPriceAlerts.js";
+import { TelegramOutboxRepository } from "./telegramOutbox.js";
 
 export function createRepositories(db: SupabaseClient) {
   return {
@@ -28,6 +29,7 @@ export function createRepositories(db: SupabaseClient) {
     mintStagePrices: new MintStagePricesRepository(db),
     mintPriceChangeNotifications: new MintPriceChangeNotificationsRepository(db),
     nftPriceAlerts: new NftPriceAlertsRepository(db),
+    telegramOutbox: new TelegramOutboxRepository(db),
   };
 }
 

@@ -20,7 +20,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
 - Cross-chain creator-token history for deployer-created ERC-20 contracts with detected DEX markets, omitted when none exist
 - Personal one-time floor-price targets for both downward and upward price movements
-- Automatic target expiration only after successful Telegram delivery, with visible pending-delivery state and confirmed cancellation
+- Automatic one-time target expiration only after its message is durably queued, with confirmed cancellation and delivery retries
 - OpenSea-link input prompt plus direct URL-paste support
 - Collection dashboard with network, contract, inferred wallet, OpenSea, and explorer details
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
@@ -37,6 +37,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
+- Durable Telegram notification outbox with stale-claim recovery and exponential delivery retries
 - Per-user rate limiting and structured error logging
 - GitHub Actions validation on pushes to `main` and pull requests
 
@@ -57,7 +58,7 @@ For research without subscribing, tap **Research NFT** or run `/info`. Send eith
 
 The same research request also resolves the NFT contract's verified deployment initiator and scans that wallet's direct contract-creation history across every configured EVM monitoring chain. Each created contract is checked for ERC-20 metadata and then matched against DEX Screener. When matches exist, the bot sends the full detected history in Telegram-safe follow-up messages with token name, symbol, chain, creation date, contract, explorer link, DEX link, and available price/liquidity/market-cap data. No creator-token section is sent when there are no matches. This check does not require another API key.
 
-For a one-time floor target, tap **Floor Alerts** or run `/pricealert`. After resolving the collection, enter a target in the floor-price currency. A target below the current floor triggers when the floor falls to or below it; a target above the current floor triggers when the floor rises to or above it. The watcher checks each unique collection once per polling cycle, sends the target owner a personal Telegram notification after the threshold is crossed, and expires the alert only after delivery succeeds. Use `/pricealerts` to review active targets. Opening an alert shows its details; cancellation requires a separate confirmation so inspecting a target cannot remove it accidentally.
+For a one-time floor target, tap **Floor Alerts** or run `/pricealert`. After resolving the collection, enter a target in the floor-price currency. A target below the current floor triggers when the floor falls to or below it; a target above the current floor triggers when the floor rises to or above it. The watcher checks each unique collection once per polling cycle and durably queues the target owner's personal Telegram message after the threshold is crossed. The one-time target then expires, while the outbox continues retrying until Telegram accepts the message. Use `/pricealerts` to review active targets. Opening an alert shows its details; cancellation requires a separate confirmation so inspecting a target cannot remove it accidentally.
 
 The bot can also be added to a Telegram group. Tap **Add to Group** at the top of the dashboard to open Telegram's group picker. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
@@ -110,6 +111,12 @@ NFT floor-price watcher (same watcher process)
       ├─ official collection stats floor lookup
       ├─ upward/downward threshold evaluation
       └─ atomic delivery claim + one-time expiration
+
+Telegram delivery worker (same watcher process)
+  └─ durable Supabase outbox
+      ├─ atomic delivery claims + stale-claim recovery
+      ├─ Telegram API confirmation
+      └─ exponential retry after timeout, rate limit, or temporary failure
 ```
 
 Important source areas:
@@ -224,8 +231,9 @@ The schema contains:
 - `mint_price_change_events`
 - `mint_price_change_notifications`
 - `nft_price_alerts`
+- `telegram_notification_outbox`
 
-The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, free-mint notifications, observed stage prices, price-transition notifications, and active floor targets use transaction/log/stage/version/target uniqueness constraints for restart-safe processing. New floor-target rows move through `active → sending → triggered`; `sending` remains visible in the dashboard as **Delivering notification**. Telegram requests use a 15-second timeout instead of grammY's 500-second default. Failed deliveries return to `active` for retry, stale claims recover after one minute, and successful targets remain expired for auditability.
+The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, free-mint notifications, observed stage prices, price-transition notifications, active floor targets, and queued Telegram messages use transaction/log/stage/version/target/event uniqueness constraints for restart-safe processing. New floor-target rows move through `active → sending → triggered`; `sending` remains visible in the dashboard as **Delivering notification** until the alert is safely inserted into the outbox. Telegram requests use a 15-second timeout instead of grammY's 500-second default. The outbox moves through `pending → sending → delivered`, recovers interrupted claims after one minute, retries failed sends with capped exponential backoff, and retains delivered rows for 30 days for deduplication and auditability.
 
 ## Environment variables
 
@@ -260,6 +268,7 @@ Optional:
 | `WATCHER_CONFIRMATIONS` | `1` | Head blocks held back to reduce reorg risk |
 | `FREE_MINT_POLL_INTERVAL_MS` | `600000` | Opt-in OpenSea upcoming-drop scan interval; minimum 60 seconds |
 | `PRICE_ALERT_POLL_INTERVAL_MS` | `60000` | Active NFT floor-target scan interval; minimum 30 seconds |
+| `TELEGRAM_OUTBOX_POLL_INTERVAL_MS` | `5000` | Durable Telegram delivery queue interval; minimum 1 second |
 | `TELEGRAM_RATE_LIMIT_PER_MINUTE` | `8` | Per-user request limit per process |
 | `LOG_LEVEL` | `info` | Pino structured-log level |
 
@@ -311,7 +320,7 @@ npm run dev:watcher
 Both processes are required for the complete product:
 
 - The **bot** handles Telegram menus, commands, collection analysis, subscriptions, and activity queries.
-- The **watcher** polls supported chains, classifies outgoing transactions, stores activity, sends automatic wallet alerts, checks OpenSea mint stages for users who opted in, and evaluates active floor-price targets.
+- The **watcher** polls supported chains, classifies outgoing transactions, stores activity, queues automatic alerts, retries Telegram delivery, checks OpenSea mint stages for users who opted in, and evaluates active floor-price targets.
 
 Running only the bot allows collection management but does not produce real-time blockchain alerts.
 
@@ -366,9 +375,9 @@ For each supported chain, the watcher:
 4. Claims each transaction once to prevent duplicate processing.
 5. Classifies it as a native send, ERC-20 transfer, NFT transfer, swap, bridge, or contract interaction.
 6. Stores the activity in Supabase.
-7. Sends a Telegram message to every active personal subscriber and subscribed Telegram group.
+7. Durably queues a Telegram message for every active personal subscriber and subscribed Telegram group.
 
-Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value when present, transaction hash, and explorer link. Swap and bridge alerts use distinct labels and icons. Failed Telegram deliveries are logged while the stored activity remains accessible through `/activity`.
+Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value when present, transaction hash, and explorer link. Swap and bridge alerts use distinct labels and icons. The same durable outbox handles ordinary dev activity, high-risk alerts, group fan-out, and direct-wallet marketplace buys/sells. A failed Telegram request remains pending and is retried automatically; the stored activity also remains accessible through `/activity`.
 
 Direct wallet subscriptions use a separate marketplace path. For each confirmed canonical Seaport settlement, the watcher decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt. An incoming NFT transfer is recorded as `nft_buy`; an outgoing NFT transfer is recorded as `nft_sell`. Alerts include the wallet, network, NFT contract, token ID, quantity, counterparty, transaction hash, and explorer link.
 
@@ -388,8 +397,8 @@ Floor targets are personal and do not require the collection to be subscribed fo
 2. The bot reads the current floor from OpenSea and asks for a positive target with up to 18 decimal places.
 3. The bot chooses the direction automatically: a lower target uses `floor <= target`; a higher target uses `floor >= target`.
 4. The watcher groups active targets by collection so users watching the same collection share one OpenSea stats request per cycle.
-5. When a threshold is crossed, the watcher atomically claims that user's target before sending Telegram. The dashboard keeps this target visible with a **Delivering notification** status.
-6. A successful Telegram response changes the target to `triggered`, so it cannot notify again. A failed or timed-out delivery releases the claim for a later retry.
+5. When a threshold is crossed, the watcher atomically claims that user's target and inserts a uniquely keyed message into the durable Telegram outbox. The dashboard keeps this target visible with a **Delivering notification** status while it is being queued.
+6. A successful outbox insert changes the target to `triggered`, so it cannot schedule another message. Telegram timeouts, rate limits, and temporary failures do not remove that queued message; the delivery worker retries it automatically.
 7. Opening an alert shows its saved direction, initial floor, latest checked floor, and current status. Cancellation requires an explicit confirmation.
 
 The notification includes the collection, chain, target, observed floor, direction, and OpenSea link. `/pricealerts` shows active and currently delivering targets; triggered and manually cancelled targets are retained in Supabase as inactive records.
@@ -402,13 +411,13 @@ The free-mint watcher runs inside the watcher service and follows this flow:
 2. Skip OpenSea polling entirely when no user has opted in.
 3. Read the official `upcoming` drops calendar and fetch detailed stages for drops entering the 12-hour window.
 4. Persist every public stage's raw base-unit price and currency address.
-5. For a free stage, claim each `(user, stage, start time)` once before sending the initial alert.
+5. For a free stage, claim each `(user, stage, start time)` once before durably queueing the initial alert.
 6. Compare later observations with the stored price and persist an event for only an exact `0 → positive` transition.
-7. Re-read durable transition events and claim each `(user, stage, start time, price version)` once before sending `MINT PRICE CHANGED`.
+7. Re-read durable transition events and claim each `(user, stage, start time, price version)` once before queueing `MINT PRICE CHANGED`.
 8. Resolve the payment token through OpenSea so the warning can show token decimals, symbol, and approximate USD value.
 9. Display start/end times in GMT.
 
-Use **Settings** or `/settings` to toggle both the initial free-mint and follow-up price-change alerts. A Telegram delivery failure releases the applicable claim so a later polling cycle can retry. A transition is announced only after the watcher previously observed that exact stage as free; a stage first discovered as paid does not produce a misleading change alert. OpenSea's calendar is the source of truth for discovery; a creator publishing a self-serve drop does not necessarily guarantee calendar inclusion, so the bot cannot alert for a drop absent from that API.
+Use **Settings** or `/settings` to toggle both the initial free-mint and follow-up price-change alerts. Once either message is queued, Telegram delivery continues retrying even if the mint later starts and leaves the 12-hour discovery window. Interrupted discovery claims recover after one minute. A transition is announced only after the watcher previously observed that exact stage as free; a stage first discovered as paid does not produce a misleading change alert. OpenSea's calendar is the source of truth for discovery; a creator publishing a self-serve drop does not necessarily guarantee calendar inclusion, so the bot cannot alert for a drop absent from that API.
 
 ## Railway deployment
 
@@ -454,11 +463,11 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
-- Failed Telegram sends are logged, but there is no durable notification outbox yet. Database activity remains available through `/activity`.
+- Telegram delivery is at-least-once: every automatic alert is stored before its source event is finalized, failed sends retry with capped exponential backoff, and interrupted delivery claims recover after one minute. In the narrow case where Telegram accepts a message but the database confirmation repeatedly fails, recovery may send a duplicate rather than lose the alert.
 
 ## Tests
 
-The test suite currently contains 66 tests across 18 files. It covers dashboard workflow descriptions and action grouping, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, pending-delivery display, confirmed cancellation copy, successful notification expiration, failed-delivery release and retry behavior, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 72 tests across 19 files. It covers dashboard workflow descriptions and action grouping, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, pending-delivery display, confirmed cancellation copy, successful notification queueing, failed-enqueue release behavior, durable Telegram delivery, retry backoff and stale-claim recovery, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test

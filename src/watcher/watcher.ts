@@ -65,7 +65,7 @@ export class WalletWatcher {
     private readonly env: AppEnv,
     private readonly repositories: Repositories,
   ) {
-    this.notifications = new NotificationService(env);
+    this.notifications = new NotificationService(env, repositories.telegramOutbox);
   }
 
   async run(signal: AbortSignal): Promise<void> {

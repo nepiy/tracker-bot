@@ -115,4 +115,39 @@ describe("outgoing transaction filtering", () => {
       expect.any(Object),
     );
   });
+
+  it("releases the transaction claim when notification enqueueing fails", async () => {
+    const releaseClaim = vi.fn(async () => undefined);
+    const transactionHash = `0x${"7".repeat(64)}` as Hash;
+    const repositories = {
+      transactions: {
+        claim: async () => true,
+        releaseClaim,
+        storeActivity: async () => undefined,
+      },
+      subscriptions: { recipientsForWallet: async () => [] },
+      groupSubscriptions: { recipientsForWallet: async () => [] },
+    } as unknown as Repositories;
+    const block: ProcessableBlock = {
+      number: 10n,
+      timestamp: 1_700_000_000n,
+      transactions: [{
+        hash: transactionHash,
+        from: watched,
+        to: other,
+        value: 1n,
+        input: "0x",
+      }],
+    };
+
+    await expect(processBlock(
+      1,
+      block,
+      [{ id: "wallet", chain_id: 1, address: watched, collectionIds: ["collection"] }],
+      repositories,
+      { send: vi.fn(async () => { throw new Error("outbox unavailable"); }) } as unknown as NotificationService,
+    )).rejects.toThrow("outbox unavailable");
+
+    expect(releaseClaim).toHaveBeenCalledWith(1, transactionHash);
+  });
 });

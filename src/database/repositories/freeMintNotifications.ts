@@ -29,11 +29,14 @@ export class FreeMintNotificationsRepository {
   }
 
   async markDelivered(id: string): Promise<void> {
-    const { error } = await this.db
+    const { data, error } = await this.db
       .from("free_mint_notifications")
       .update({ delivered_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .is("delivered_at", null)
+      .select("id");
     assertDatabaseResult(error, "mark free mint notification delivered");
+    if (data?.length !== 1) throw new Error("Free mint notification delivery state was not updated");
   }
 
   async release(id: string): Promise<void> {
@@ -43,5 +46,14 @@ export class FreeMintNotificationsRepository {
       .eq("id", id)
       .is("delivered_at", null);
     assertDatabaseResult(error, "release free mint notification claim");
+  }
+
+  async releaseStaleClaims(before: Date): Promise<void> {
+    const { error } = await this.db
+      .from("free_mint_notifications")
+      .delete()
+      .is("delivered_at", null)
+      .lt("claimed_at", before.toISOString());
+    assertDatabaseResult(error, "release stale free mint notification claims");
   }
 }

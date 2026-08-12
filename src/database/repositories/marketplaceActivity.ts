@@ -43,4 +43,17 @@ export class MarketplaceActivityRepository {
     assertDatabaseResult(error, "claim marketplace activity");
     return true;
   }
+
+  async release(activity: MarketplaceActivityInsert): Promise<void> {
+    const { error } = await this.db
+      .from("marketplace_activity")
+      .delete()
+      .eq("wallet_id", activity.walletId)
+      .eq("chain_id", activity.chainId)
+      .eq("tx_hash", activity.txHash.toLowerCase())
+      .eq("log_index", activity.logIndex)
+      .eq("item_index", activity.itemIndex)
+      .eq("activity_type", activity.type);
+    assertDatabaseResult(error, "release marketplace activity claim");
+  }
 }

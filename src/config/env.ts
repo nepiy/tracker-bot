@@ -28,6 +28,7 @@ const envSchema = z.object({
   WATCHER_CONFIRMATIONS: z.coerce.number().int().min(0).default(1),
   FREE_MINT_POLL_INTERVAL_MS: z.coerce.number().int().min(60_000).default(600_000),
   PRICE_ALERT_POLL_INTERVAL_MS: z.coerce.number().int().min(30_000).default(60_000),
+  TELEGRAM_OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).default(5_000),
   TELEGRAM_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(8),
 });
 

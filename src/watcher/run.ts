@@ -5,12 +5,14 @@ import { createRepositories } from "../database/repositories/index.js";
 import { WalletWatcher } from "./watcher.js";
 import { FreeMintWatcher } from "./freeMints.js";
 import { NftPriceAlertWatcher } from "./nftPriceAlerts.js";
+import { TelegramOutboxWatcher } from "./telegramOutbox.js";
 
 const env = getEnv();
 const repositories = createRepositories(createDatabaseClient(env));
 const watcher = new WalletWatcher(env, repositories);
 const freeMintWatcher = new FreeMintWatcher(env, repositories);
 const nftPriceAlertWatcher = new NftPriceAlertWatcher(env, repositories);
+const telegramOutboxWatcher = new TelegramOutboxWatcher(env, repositories);
 const controller = new AbortController();
 
 process.once("SIGINT", () => controller.abort());
@@ -21,6 +23,7 @@ try {
     watcher.run(controller.signal),
     freeMintWatcher.run(controller.signal),
     nftPriceAlertWatcher.run(controller.signal),
+    telegramOutboxWatcher.run(controller.signal),
   ]);
 } catch (error) {
   logger.fatal({ err: error }, "watcher terminated unexpectedly");

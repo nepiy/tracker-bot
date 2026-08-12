@@ -173,7 +173,17 @@ async function recordTrade(
     timestamp: new Date(Number(timestamp) * 1_000),
   } as const;
   if (!await repositories.marketplaceActivity.claim(activity)) return;
-  await notifications.sendMarketplace(wallet.recipients, { ...activity, wallet: wallet.address, hash });
+  try {
+    await notifications.sendMarketplace(wallet.recipients, { ...activity, wallet: wallet.address, hash });
+  } catch (error) {
+    await repositories.marketplaceActivity.release(activity).catch((releaseError) => {
+      logger.error(
+        { err: releaseError, chainId, txHash: hash, wallet: wallet.address, activityType: type },
+        "failed to release marketplace activity after notification enqueue failure",
+      );
+    });
+    throw error;
+  }
   logger.info(
     { chainId, blockNumber: blockNumber.toString(), txHash: hash, wallet: wallet.address, activityType: type },
     "processed marketplace wallet activity",
