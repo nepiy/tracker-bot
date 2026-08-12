@@ -83,6 +83,61 @@ describe("outgoing transaction filtering", () => {
     expect(send.mock.calls[0]![1]).toMatchObject({ balanceBefore: 100n });
   });
 
+  it("captures ERC-20 assets spent by a swap and their pre-transaction balances", async () => {
+    const send = vi.fn(async () => undefined);
+    const token = "0x0000000000000000000000000000000000000033" as Address;
+    const repositories = {
+      transactions: { claim: async () => true, storeActivity: async () => undefined },
+      subscriptions: { recipientsForWallet: async () => [] },
+      groupSubscriptions: { recipientsForWallet: async () => [] },
+    } as unknown as Repositories;
+    const block: ProcessableBlock = {
+      number: 10n,
+      timestamp: 1_700_000_000n,
+      transactions: [{
+        hash: `0x${"8".repeat(64)}` as Hash,
+        from: watched,
+        to: other,
+        value: 0n,
+        input: "0x38ed1739",
+      }],
+    };
+    const reader = {
+      getBalance: async () => 0n,
+      getTransactionReceipt: async () => ({
+        logs: [{
+          address: token,
+          topics: [
+            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+            `0x${"0".repeat(24)}${watched.slice(2)}`,
+            `0x${"0".repeat(24)}${other.slice(2)}`,
+          ],
+          data: `0x${"0".repeat(62)}5b`,
+        }],
+      }),
+      readContract: vi.fn(async () => 100n),
+    };
+
+    await processBlock(
+      1,
+      block,
+      [{ id: "wallet", chain_id: 1, address: watched, collectionIds: ["collection"] }],
+      repositories,
+      { send } as unknown as NotificationService,
+      reader,
+    );
+
+    expect(reader.readContract).toHaveBeenCalledWith(expect.objectContaining({
+      address: token,
+      functionName: "balanceOf",
+      args: [watched],
+      blockNumber: 9n,
+    }));
+    expect(send.mock.calls[0]![1]).toMatchObject({
+      swapAssets: [{ token, amount: 91n, balanceBefore: 100n }],
+    });
+  });
+
   it("fans a collection alert out to a subscribed group", async () => {
     const send = vi.fn(async () => undefined);
     const personalRecipients = vi.fn(async () => []);

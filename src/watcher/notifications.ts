@@ -7,6 +7,7 @@ import type { DecodedActivity } from "../types/index.js";
 import { getChainById } from "../blockchain/chains.js";
 import type { ChainConfig } from "../types/index.js";
 import { assessActivityRisk } from "./risk.js";
+import type { SwapAssetMovement } from "./risk.js";
 import type {
   OpenSeaTokenDetails,
   UpcomingFreeMint,
@@ -31,6 +32,7 @@ export interface ActivityNotification {
   hash: Hash;
   decoded: DecodedActivity;
   balanceBefore: bigint | null;
+  swapAssets: readonly SwapAssetMovement[];
 }
 
 export interface MarketplaceNotification {

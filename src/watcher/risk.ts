@@ -9,6 +9,13 @@ export interface RiskAssessmentInput {
   value: bigint;
   balanceBefore: bigint | null;
   decoded: DecodedActivity;
+  swapAssets?: readonly SwapAssetMovement[];
+}
+
+export interface SwapAssetMovement {
+  token: Address;
+  amount: bigint;
+  balanceBefore: bigint | null;
 }
 
 export interface RiskAssessment {
@@ -37,6 +44,16 @@ export function assessActivityRisk(input: RiskAssessmentInput, env: AppEnv): Ris
     reasons.push(`Sent ${balancePercentage} of the pre-transaction native balance`);
   }
   if (input.decoded.type === "bridge") reasons.push("Bridge-out transaction detected");
+  if (input.decoded.type === "swap") {
+    for (const asset of input.swapAssets ?? []) {
+      if (!asset.balanceBefore || asset.balanceBefore <= 0n || asset.amount * 100n <= asset.balanceBefore * 90n) {
+        continue;
+      }
+      reasons.push(
+        `Swapped ${formatPercentage(asset.amount, asset.balanceBefore)} of the pre-transaction token balance (${asset.token.slice(0, 6)}...${asset.token.slice(-4)})`,
+      );
+    }
+  }
 
   const destination = destinationAddress(input);
   const cexLabel = destination

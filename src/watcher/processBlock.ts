@@ -1,10 +1,14 @@
-import type { Address, Hash, Hex } from "viem";
+import { parseAbi, type Address, type Hash, type Hex } from "viem";
 import { decodeActivity } from "../blockchain/activityDecoder.js";
 import type { Repositories } from "../database/repositories/index.js";
 import type { WatchedWallet } from "../database/repositories/wallets.js";
 import { logger } from "../config/logger.js";
 import { normalizeAddress } from "../utils/address.js";
 import type { NotificationService } from "./notifications.js";
+import type { SwapAssetMovement } from "./risk.js";
+
+const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const erc20BalanceOfAbi = parseAbi(["function balanceOf(address account) view returns (uint256)"]);
 
 export interface ProcessableTransaction {
   hash: Hash;
@@ -22,6 +26,75 @@ export interface ProcessableBlock {
 
 export interface BalanceReader {
   getBalance(parameters: { address: Address; blockNumber: bigint }): Promise<bigint>;
+}
+
+interface ReceiptLog {
+  address: Address;
+  topics: readonly Hex[];
+  data: Hex;
+}
+
+interface SwapAssetReader {
+  getTransactionReceipt(parameters: { hash: Hash }): Promise<{ logs: readonly ReceiptLog[] }>;
+  readContract(parameters: {
+    address: Address;
+    abi: typeof erc20BalanceOfAbi;
+    functionName: "balanceOf";
+    args: readonly [Address];
+    blockNumber: bigint;
+  }): Promise<unknown>;
+}
+
+function supportsSwapAssetReading(reader: BalanceReader | undefined): reader is BalanceReader & SwapAssetReader {
+  const candidate = reader as Partial<SwapAssetReader> | undefined;
+  return typeof candidate?.getTransactionReceipt === "function" && typeof candidate.readContract === "function";
+}
+
+function topicAddress(topic: Hex | undefined): Address | null {
+  if (!topic || !/^0x[0-9a-fA-F]{64}$/.test(topic)) return null;
+  return normalizeAddress(`0x${topic.slice(-40)}`);
+}
+
+function outgoingErc20Amounts(logs: readonly ReceiptLog[], wallet: Address): Map<Address, bigint> {
+  const totals = new Map<Address, bigint>();
+  for (const log of logs) {
+    // ERC-20 Transfer has exactly three topics and a 32-byte amount in data.
+    // ERC-721 uses a fourth indexed token-id topic, so it is intentionally excluded.
+    if (log.topics.length !== 3 || log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC || !/^0x[0-9a-fA-F]{64}$/.test(log.data)) {
+      continue;
+    }
+    const from = topicAddress(log.topics[1]);
+    if (from?.toLowerCase() !== wallet.toLowerCase()) continue;
+    const token = normalizeAddress(log.address);
+    totals.set(token, (totals.get(token) ?? 0n) + BigInt(log.data));
+  }
+  return totals;
+}
+
+async function swapAssetsBeforeTransaction(
+  reader: SwapAssetReader,
+  transaction: ProcessableTransaction,
+  wallet: Address,
+  blockNumber: bigint,
+): Promise<SwapAssetMovement[]> {
+  const receipt = await reader.getTransactionReceipt({ hash: transaction.hash });
+  const amounts = outgoingErc20Amounts(receipt.logs, wallet);
+  if (!amounts.size) return [];
+  const balanceBlock = blockNumber > 0n ? blockNumber - 1n : 0n;
+  return Promise.all([...amounts].map(async ([token, amount]) => {
+    const balance = await reader.readContract({
+      address: token,
+      abi: erc20BalanceOfAbi,
+      functionName: "balanceOf",
+      args: [wallet],
+      blockNumber: balanceBlock,
+    });
+    return {
+      token,
+      amount,
+      balanceBefore: typeof balance === "bigint" ? balance : null,
+    };
+  }));
 }
 
 export function isOutgoingTransaction(
@@ -54,6 +127,7 @@ export async function processBlock(
     const to = item.to ? normalizeAddress(item.to) : null;
     const decoded = decodeActivity({ to, value: item.value, input: item.input });
     let balanceBefore: bigint | null = null;
+    let swapAssets: SwapAssetMovement[] = [];
     if (balanceReader && item.value > 0n) {
       try {
         balanceBefore = await balanceReader.getBalance({
@@ -64,6 +138,16 @@ export async function processBlock(
         logger.warn(
           { err: error, chainId, blockNumber: block.number.toString(), wallet: from },
           "failed to read pre-block wallet balance",
+        );
+      }
+    }
+    if (decoded.type === "swap" && supportsSwapAssetReading(balanceReader)) {
+      try {
+        swapAssets = await swapAssetsBeforeTransaction(balanceReader, item, from, block.number);
+      } catch (error) {
+        logger.warn(
+          { err: error, chainId, blockNumber: block.number.toString(), txHash: item.hash, wallet: from },
+          "failed to read pre-swap ERC-20 balances",
         );
       }
     }
@@ -94,6 +178,7 @@ export async function processBlock(
         hash: item.hash,
         decoded,
         balanceBefore,
+        swapAssets,
       });
     } catch (error) {
       await repositories.transactions.releaseClaim(chainId, item.hash).catch((releaseError) => {
