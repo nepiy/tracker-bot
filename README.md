@@ -431,7 +431,9 @@ Create two Railway services from the same repository and give both the same envi
 1. **Bot service**: use `npm run start:bot`. The included `railway.toml` and `nixpacks.toml` default to this command.
 2. **Watcher service**: override the Railway start command with `npm run start:watcher`.
 
-Both services run `npm ci && npm run build` during deployment. Neither needs an HTTP port or public domain. Configure restart-on-failure for both, and deploy exactly one watcher replica.
+Nixpacks installs dependencies once with `npm ci --include=dev`, then Railway runs `npm run build`. Keeping installation and compilation in separate phases avoids rebuilding against Railway's mounted `node_modules` cache. The explicit dev-dependency inclusion keeps TypeScript available while `NODE_ENV=production` is set. Neither service needs an HTTP port or public domain. Configure restart-on-failure for both, and deploy exactly one watcher replica.
+
+Do not set a dashboard **Custom Build Command** containing `npm ci`; leave it empty so `railway.toml` supplies `npm run build`. Only the watcher needs a dashboard command override, under **Custom Start Command**, set to `npm run start:watcher`.
 
 After deployment, verify both services are running. A healthy bot service alone is not enough for automatic alerts.
 
