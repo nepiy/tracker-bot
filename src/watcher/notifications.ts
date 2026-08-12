@@ -12,6 +12,7 @@ import type {
   UpcomingFreeMint,
   UpcomingMintStage,
 } from "../opensea/upcomingDrops.js";
+import type { NftPriceAlertRecipient } from "../database/repositories/nftPriceAlerts.js";
 
 export interface ActivityNotification {
   chainId: number;
@@ -77,6 +78,35 @@ export function formatFreeMintAlert(mint: UpcomingFreeMint): string {
 export interface MintPriceChangeNotification {
   stage: UpcomingMintStage;
   token: OpenSeaTokenDetails | null;
+}
+
+export interface NftPriceTargetNotification {
+  alert: NftPriceAlertRecipient;
+  currentFloor: string;
+  currencySymbol: string;
+}
+
+function compactDecimal(value: string): string {
+  if (!value.includes(".")) return value;
+  return value.replace(/0+$/, "").replace(/\.$/, "");
+}
+
+export function formatNftPriceTargetAlert(notification: NftPriceTargetNotification): string {
+  const { alert } = notification;
+  const movement = alert.direction === "at_or_below" ? "fell to or below" : "rose to or above";
+  return [
+    "🎯 NFT FLOOR PRICE TARGET REACHED",
+    "",
+    `Collection: ${alert.collectionName}`,
+    `Chain: ${titleCase(alert.chain)}`,
+    `Condition: Floor ${movement} your target`,
+    `Target: ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
+    `Current floor: ${compactDecimal(notification.currentFloor)} ${notification.currencySymbol}`,
+    "",
+    "This was a one-time alert and has now expired.",
+    "",
+    `https://opensea.io/collection/${alert.slug}`,
+  ].join("\n");
 }
 
 export function formatPaidMintPrice(
@@ -238,6 +268,15 @@ export class NotificationService {
     notification: MintPriceChangeNotification,
   ): Promise<void> {
     await this.api.sendMessage(telegramId, formatMintPriceChangeAlert(notification), {
+      link_preview_options: { is_disabled: true },
+    });
+  }
+
+  async sendNftPriceTarget(
+    telegramId: number,
+    notification: NftPriceTargetNotification,
+  ): Promise<void> {
+    await this.api.sendMessage(telegramId, formatNftPriceTargetAlert(notification), {
       link_preview_options: { is_disabled: true },
     });
   }

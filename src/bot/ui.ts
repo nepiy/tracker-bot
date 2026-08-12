@@ -26,6 +26,8 @@ export const HELP_TEXT = [
   "",
   "Commands:",
   "/info <OpenSea URL or contract> — research a collection",
+  "/pricealert <OpenSea URL or contract> — create a one-time floor target",
+  "/pricealerts — view or cancel floor-price targets",
   "/track <OpenSea URL> — add a collection",
   "/list — tracked collections dashboard",
   "/activity — recent outgoing activity",
@@ -43,6 +45,7 @@ export const HELP_TEXT = [
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("🔎 Collection info", "menu:info")
+    .text("🎯 Price alerts", "menu:price-alerts")
     .row()
     .text("➕ Add collection", "menu:track")
     .text("📡 Collections", "menu:list")

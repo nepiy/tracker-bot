@@ -12,6 +12,7 @@ import {
   MintPriceChangeNotificationsRepository,
   MintStagePricesRepository,
 } from "./mintStagePrices.js";
+import { NftPriceAlertsRepository } from "./nftPriceAlerts.js";
 
 export function createRepositories(db: SupabaseClient) {
   return {
@@ -26,6 +27,7 @@ export function createRepositories(db: SupabaseClient) {
     freeMintNotifications: new FreeMintNotificationsRepository(db),
     mintStagePrices: new MintStagePricesRepository(db),
     mintPriceChangeNotifications: new MintPriceChangeNotificationsRepository(db),
+    nftPriceAlerts: new NftPriceAlertsRepository(db),
   };
 }
 

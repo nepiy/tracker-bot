@@ -18,6 +18,8 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Read-only collection research from an OpenSea URL or Ethereum/Base/Robinhood NFT contract
 - Collection owner, live mint-or-floor details, top offer, 24-hour volume, and floor-price change reporting
 - Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
+- Personal one-time floor-price targets for both downward and upward price movements
+- Automatic target expiration after successful Telegram delivery, with active-target listing and cancellation
 - OpenSea-link input prompt plus direct URL-paste support
 - Collection dashboard with network, contract, inferred wallet, OpenSea, and explorer details
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
@@ -51,6 +53,8 @@ Open `/start`, tap **Add collection**, and send a URL such as `https://opensea.i
 8. Monitor each unique wallet once, store outgoing activity, and fan alerts out to every active subscriber.
 
 For research without subscribing, tap **Collection info** or run `/info`. Send either an OpenSea collection URL or an NFT contract on Ethereum, Base, or Robinhood Chain. The bot resolves the official OpenSea collection and returns its link, contract, chain, OpenSea collection-owner wallet, top collection offer, 24-hour volume, and 24-hour floor-price change. When a mint is active or its next stage begins within 12 hours, mint status, access, price, GMT schedule, wallet limit, and available supply details replace the floor-price line. Otherwise, the current floor price is shown. If the owner's OpenSea profile is attributed as the creator of other collections, up to five are included; the section is omitted when there are none.
+
+For a one-time floor target, tap **Price alerts** or run `/pricealert`. After resolving the collection, enter a target in the floor-price currency. A target below the current floor triggers when the floor falls to or below it; a target above the current floor triggers when the floor rises to or above it. The watcher checks each unique collection once per polling cycle, sends the target owner a personal Telegram notification after the threshold is crossed, and expires the alert only after delivery succeeds. Use `/pricealerts` to review or cancel active targets.
 
 The bot can also be added to a Telegram group. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
@@ -95,6 +99,12 @@ Free-mint watcher (same watcher process)
           ├─ persistent public-stage price snapshot
           ├─ free alert + per-user/stage claim
           └─ free-to-paid transition alert + token/USD formatting
+
+NFT floor-price watcher (same watcher process)
+  └─ unique active OpenSea collections
+      ├─ official collection stats floor lookup
+      ├─ upward/downward threshold evaluation
+      └─ atomic delivery claim + one-time expiration
 ```
 
 Important source areas:
@@ -130,6 +140,8 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    start - Open the bot dashboard
    help - Show help
    info - Research an OpenSea collection
+   pricealert - Create a one-time NFT floor target
+   pricealerts - View or cancel NFT floor targets
    track - Track an OpenSea collection
    list - Open tracked collections
    stop - Stop tracking a collection
@@ -206,8 +218,9 @@ The schema contains:
 - `mint_stage_prices`
 - `mint_price_change_events`
 - `mint_price_change_notifications`
+- `nft_price_alerts`
 
-The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, free-mint notifications, observed stage prices, and price-transition notifications use transaction/log/stage/version uniqueness constraints for restart-safe processing.
+The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, free-mint notifications, observed stage prices, price-transition notifications, and active floor targets use transaction/log/stage/version/target uniqueness constraints for restart-safe processing. New floor-target rows move through `active → sending → triggered`; failed deliveries return to `active`, while successful targets remain expired for auditability.
 
 ## Environment variables
 
@@ -241,6 +254,7 @@ Optional:
 | `WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS` | `10` | Blocks scanned when a chain cursor is first created |
 | `WATCHER_CONFIRMATIONS` | `1` | Head blocks held back to reduce reorg risk |
 | `FREE_MINT_POLL_INTERVAL_MS` | `600000` | Opt-in OpenSea upcoming-drop scan interval; minimum 60 seconds |
+| `PRICE_ALERT_POLL_INTERVAL_MS` | `60000` | Active NFT floor-target scan interval; minimum 30 seconds |
 | `TELEGRAM_RATE_LIMIT_PER_MINUTE` | `8` | Per-user request limit per process |
 | `LOG_LEVEL` | `info` | Pino structured-log level |
 
@@ -292,7 +306,7 @@ npm run dev:watcher
 Both processes are required for the complete product:
 
 - The **bot** handles Telegram menus, commands, collection analysis, subscriptions, and activity queries.
-- The **watcher** polls supported chains, classifies outgoing transactions, stores activity, sends automatic wallet alerts, and checks OpenSea mint stages for users who opted in.
+- The **watcher** polls supported chains, classifies outgoing transactions, stores activity, sends automatic wallet alerts, checks OpenSea mint stages for users who opted in, and evaluates active floor-price targets.
 
 Running only the bot allows collection management but does not produce real-time blockchain alerts.
 
@@ -310,6 +324,8 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/start`: open the inline-button dashboard
 - `/help`: setup and command help
 - `/info <OpenSea URL or NFT contract>`: return read-only collection, owner, mint-or-floor, offer, volume, price-change, and related-collection information; `/info` by itself opens the validated input prompt
+- `/pricealert <OpenSea URL or NFT contract>`: resolve the current floor and create a personal one-time upward or downward target; `/pricealert` by itself opens the collection prompt
+- `/pricealerts`: list active floor targets and cancel individual alerts
 - `/track <OpenSea URL>`: analyze and subscribe; `/track` by itself opens an OpenSea-link input prompt
 - Paste an OpenSea collection URL directly: same behavior as `/track`
 - `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
@@ -322,7 +338,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
 - `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
 
-The dashboard keeps common actions in inline buttons: research a collection, add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Research, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to the research prompt is not mistaken for a wallet subscription.
+The dashboard keeps common actions in inline buttons: research a collection, create or manage floor targets, add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 
@@ -358,6 +374,19 @@ Collection dev-wallet notifications are promoted to `🚨🚨 ALERT: HIGH-RISK D
 - The final transfer recipient matches a chain-specific entry in `CEX_ADDRESSES_JSON`.
 
 The alert lists every matching reason, so a large bridge or a transfer to a configured Binance/Bybit address can show multiple warnings.
+
+## One-time NFT floor-price alerts
+
+Floor targets are personal and do not require the collection to be subscribed for dev-wallet tracking:
+
+1. Open **Price alerts**, choose **Add price alert**, and send an OpenSea collection URL or a supported-chain NFT contract.
+2. The bot reads the current floor from OpenSea and asks for a positive target with up to 18 decimal places.
+3. The bot chooses the direction automatically: a lower target uses `floor <= target`; a higher target uses `floor >= target`.
+4. The watcher groups active targets by collection so users watching the same collection share one OpenSea stats request per cycle.
+5. When a threshold is crossed, the watcher atomically claims that user's target before sending Telegram.
+6. A successful delivery changes the target to `triggered`, so it cannot notify again. A failed delivery releases the claim for a later retry.
+
+The notification includes the collection, chain, target, observed floor, direction, and OpenSea link. `/pricealerts` shows only active targets; triggered and manually cancelled targets are retained in Supabase as inactive records.
 
 ## Optional free-mint alerts
 
@@ -412,6 +441,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.
 - CEX detection is only as complete as `CEX_ADDRESSES_JSON`; exchanges issue many account-specific deposit addresses and can rotate infrastructure.
 - Bridge detection uses the maintained selector registry. A new/custom bridge method must be added before it can be labeled automatically.
+- Floor alerts use OpenSea's collection floor, not individual-token trait floors or marketplace listings outside OpenSea's reported aggregate. A threshold is evaluated once per `PRICE_ALERT_POLL_INTERVAL_MS`, so a brief price crossing entirely between polls may not be observed. Currency-symbol changes are not compared across unlike currencies.
 - Free-mint discovery and price-change detection cover public stages returned by OpenSea's official upcoming calendar while they remain in the 12-hour window. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded. Approximate USD values depend on OpenSea's current token quote and can move after the alert.
 - `/info` treats "minting soon" as a stage beginning within 12 hours. Its 24-hour price change is calculated from OpenSea's floor-price history; it is reported as unavailable when a complete 24-hour baseline does not exist. Owner attribution and related collections reflect OpenSea account data, not verified real-world identity.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
@@ -421,7 +451,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 54 tests across 16 files. It covers URL and address validation, collection research by URL and contract, owner/related-collection filtering, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 59 tests across 17 files. It covers URL and address validation, collection research by URL and contract, owner/related-collection filtering, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, target notification/expiration behavior, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test
