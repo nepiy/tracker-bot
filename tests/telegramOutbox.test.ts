@@ -78,19 +78,23 @@ describe("durable Telegram notification outbox", () => {
 
   it("durably queues every automatic alert category instead of sending inline", async () => {
     const enqueue = vi.fn(async () => undefined);
-    const service = new NotificationService(env, { enqueue } as never);
+    const nativeUsdRateLookup = vi.fn(async () => "2000");
+    const service = new NotificationService(env, { enqueue } as never, nativeUsdRateLookup);
     const wallet = "0x0000000000000000000000000000000000000001" as Address;
     const other = "0x0000000000000000000000000000000000000002" as Address;
     const nft = "0x0000000000000000000000000000000000000003" as Address;
     const hash = `0x${"4".repeat(64)}` as Hash;
 
     await service.send(
-      [{ telegramId: 12345, collectionId: "collection-id", collectionName: "Collection" }],
+      [
+        { telegramId: 12345, collectionId: "collection-id", collectionName: "Collection", chainId: 1 },
+        { telegramId: 54321, collectionId: "base-collection", collectionName: "Base Collection", chainId: 8453 },
+      ],
       {
         chainId: 1,
         wallet,
         to: other,
-        value: 1n,
+        value: 1_000_000_000_000_000_000n,
         hash,
         decoded: { type: "native_transfer", label: "Native transfer", metadata: { recipient: other } },
         balanceBefore: 100n,
@@ -160,6 +164,9 @@ describe("durable Telegram notification outbox", () => {
       eventKey: `activity:1:${hash}:12345:collection-id`,
       telegramId: 12345,
     });
+    expect(enqueue.mock.calls[0]![0]).toHaveLength(1);
+    expect(enqueue.mock.calls[0]![0][0].messageText).toContain("Value: 1 ETH (≈ $2,000.00)");
+    expect(nativeUsdRateLookup).toHaveBeenCalledTimes(1);
     expect(enqueue.mock.calls[1]![0][0]).toMatchObject({
       eventKey: expect.stringContaining("marketplace:1:"),
       telegramId: 12345,

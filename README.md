@@ -25,12 +25,12 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - OpenSea-link input prompt plus direct URL-paste support
 - Collection dashboard with network, contract, inferred wallet, OpenSea, and explorer details
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
-- Automatic outgoing-activity alerts for active subscribers
+- Automatic outgoing-activity alerts for active subscribers, scoped to each collection's own chain
 - Direct wallet subscriptions across Ethereum, Base, and Robinhood Chain
 - Automatic NFT buy/sell alerts for recognized Seaport marketplace settlements
 - High-risk `ALERT` notifications for native sends above 90% of the pre-block balance
 - High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
-- Cross-chain reuse of inferred dev addresses across every configured EVM monitoring network
+- Optional cross-chain monitoring of inferred dev addresses without cross-chain collection-alert fan-out
 - Telegram group collection alerts managed only by verified group administrators
 - Opt-in OpenSea free-mint alerts for public zero-price stages starting within the next 12 hours
 - Follow-up alerts when an announced free stage changes to any positive mint price
@@ -286,7 +286,7 @@ OpenSea resolution remains limited to Ethereum, Base, and Robinhood Chain. To fo
 MONITORING_CHAINS_JSON=[{"chainId":42161,"name":"Arbitrum One","rpcUrl":"https://YOUR_ARBITRUM_RPC","explorerUrl":"https://arbiscan.io","nativeSymbol":"ETH"},{"chainId":10,"name":"Optimism","rpcUrl":"https://YOUR_OPTIMISM_RPC","explorerUrl":"https://optimistic.etherscan.io","nativeSymbol":"ETH"}]
 ```
 
-Any EVM chain can be added this way, but each chain requires a reliable RPC endpoint. Restart the watcher after changing the list. The watcher automatically creates a chain-specific wallet record for the same inferred dev address and links its alerts back to the original collection subscription.
+Any EVM chain can be added this way, but each chain requires a reliable RPC endpoint. Restart the watcher after changing the list. The watcher automatically creates a chain-specific wallet record for the same inferred dev address, but it does not send a collection alert from an added chain unless that collection itself is on that chain.
 
 ### CEX destination labels
 
@@ -380,9 +380,9 @@ For each supported chain, the watcher:
 4. Claims each transaction once to prevent duplicate processing.
 5. Classifies it as a native send, ERC-20 transfer, NFT transfer, swap, bridge, or contract interaction.
 6. Stores the activity in Supabase.
-7. Durably queues a Telegram message for every active personal subscriber and subscribed Telegram group.
+7. Durably queues a Telegram message for every active personal subscriber and subscribed Telegram group whose collection is on that same chain.
 
-Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value when present, transaction hash, and explorer link. Swap and bridge alerts use distinct labels and icons. The same durable outbox handles ordinary dev activity, high-risk alerts, group fan-out, and direct-wallet marketplace buys/sells. A failed Telegram request remains pending and is retried automatically; the stored activity also remains accessible through `/activity`.
+Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value with a live approximate USD equivalent when available, transaction hash, and explorer link. For example, `0.002917 ETH (≈ $X.XX)`. Swap and bridge alerts use distinct labels and icons. The same durable outbox handles ordinary dev activity, high-risk alerts, group fan-out, and direct-wallet marketplace buys/sells. A failed Telegram request remains pending and is retried automatically; the stored activity also remains accessible through `/activity`.
 
 Direct wallet subscriptions use a separate marketplace path. For each confirmed canonical Seaport settlement, the watcher decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt. An incoming NFT transfer is recorded as `nft_buy`; an outgoing NFT transfer is recorded as `nft_sell`. Alerts include the wallet, network, NFT contract, token ID, quantity, counterparty, transaction hash, and explorer link.
 

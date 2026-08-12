@@ -39,19 +39,21 @@ describe("high-risk dev activity", () => {
 
   it("places ALERT at the top of a high-risk Telegram notification", () => {
     const text = formatActivityAlert(
-      { telegramId: 1, collectionName: "FishBroker", collectionId: "collection" },
+      { telegramId: 1, collectionName: "FishBroker", collectionId: "collection", chainId: 1 },
       {
         chainId: 1,
         wallet,
         to: destination,
-        value: 91n,
-        balanceBefore: 100n,
+        value: 2_917_000_000_000_000n,
+        balanceBefore: 3_000_000_000_000_000n,
         hash: `0x${"3".repeat(64)}`,
         decoded: { type: "native_transfer", label: "Native token transfer", metadata: {} },
       },
       env,
+      "2000",
     );
     expect(text.startsWith("🚨🚨 ALERT: HIGH-RISK DEV ACTIVITY 🚨🚨")).toBe(true);
     expect(text).toContain("configured CEX: Binance");
+    expect(text).toContain("Value: 0.002917 ETH (≈ $5.83)");
   });
 });

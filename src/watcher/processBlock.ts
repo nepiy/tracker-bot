@@ -83,8 +83,8 @@ export async function processBlock(
         decoded,
       });
       const [personalRecipients, groupRecipients] = await Promise.all([
-        repositories.subscriptions.recipientsForWallet(wallet.id),
-        repositories.groupSubscriptions.recipientsForWallet(wallet.id),
+        repositories.subscriptions.recipientsForWallet(wallet.id, chainId),
+        repositories.groupSubscriptions.recipientsForWallet(wallet.id, chainId),
       ]);
       await notifications.send([...personalRecipients, ...groupRecipients], {
         chainId,

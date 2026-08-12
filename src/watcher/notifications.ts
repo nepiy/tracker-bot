@@ -5,6 +5,7 @@ import type { NotificationRecipient } from "../database/repositories/subscriptio
 import type { WalletNotificationRecipient } from "../database/repositories/walletSubscriptions.js";
 import type { DecodedActivity } from "../types/index.js";
 import { getChainById } from "../blockchain/chains.js";
+import type { ChainConfig } from "../types/index.js";
 import { assessActivityRisk } from "./risk.js";
 import type {
   OpenSeaTokenDetails,
@@ -14,6 +15,13 @@ import type {
 import type { NftPriceAlertRecipient } from "../database/repositories/nftPriceAlerts.js";
 import { formatTokenWithUsd } from "../utils/price.js";
 import type { TelegramOutboxRepository } from "../database/repositories/telegramOutbox.js";
+import { getOpenSeaTokenDetails } from "../opensea/upcomingDrops.js";
+import { logger } from "../config/logger.js";
+
+const NATIVE_ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
+const NATIVE_USD_QUOTE_CACHE_MS = 60_000;
+
+export type NativeUsdRateLookup = (chain: ChainConfig) => Promise<string | null>;
 
 export interface ActivityNotification {
   chainId: number;
@@ -155,10 +163,13 @@ export function formatActivityAlert(
   recipient: NotificationRecipient,
   activity: ActivityNotification,
   env: AppEnv,
+  nativeUsdRate: string | null = null,
 ): string {
   const chain = getChainById(activity.chainId, env);
   const destination = String(activity.decoded.metadata.recipient ?? activity.to ?? "Contract creation");
-  const value = activity.value > 0n ? `${formatEther(activity.value)} ${chain.nativeSymbol}` : "0";
+  const value = activity.value > 0n
+    ? formatTokenWithUsd(formatEther(activity.value), chain.nativeSymbol, nativeUsdRate)
+    : "0";
   const actionIcon: Record<DecodedActivity["type"], string> = {
     native_transfer: "📤",
     erc20_transfer: "📤",
@@ -210,24 +221,53 @@ export function formatMarketplaceAlert(activity: MarketplaceNotification, env: A
 
 export class NotificationService {
   private readonly api: Api;
+  private readonly nativeUsdQuoteCache = new Map<string, { expiresAt: number; rate: string | null }>();
 
   constructor(
     private readonly env: AppEnv,
     private readonly outbox?: TelegramOutboxRepository,
+    private readonly nativeUsdRateLookup: NativeUsdRateLookup = async (chain) => {
+      // All currently supported OpenSea collection networks use ETH as their native currency.
+      // Querying Ethereum's native ETH quote also covers Base and Robinhood Chain reliably.
+      if (chain.nativeSymbol !== "ETH") return null;
+      const token = await getOpenSeaTokenDetails(env.OPENSEA_API_KEY, "ethereum", NATIVE_ETH_ADDRESS);
+      return token.usdPrice;
+    },
   ) {
     this.api = new Api(env.TELEGRAM_BOT_TOKEN, { timeoutSeconds: 15 });
   }
 
+  private async nativeUsdRate(chain: ChainConfig): Promise<string | null> {
+    if (chain.nativeSymbol !== "ETH") return null;
+    const cacheKey = chain.nativeSymbol;
+    const cached = this.nativeUsdQuoteCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.rate;
+
+    let rate: string | null = null;
+    try {
+      rate = await this.nativeUsdRateLookup(chain);
+    } catch (error) {
+      logger.warn({ err: error, chainId: chain.chainId }, "native USD quote unavailable for activity alert");
+    }
+    this.nativeUsdQuoteCache.set(cacheKey, { rate, expiresAt: Date.now() + NATIVE_USD_QUOTE_CACHE_MS });
+    return rate;
+  }
+
   async send(recipients: NotificationRecipient[], activity: ActivityNotification): Promise<void> {
     if (!this.outbox) throw new Error("Telegram outbox is required for activity notifications");
+    const chain = getChainById(activity.chainId, this.env);
+    const nativeUsdRate = activity.value > 0n ? await this.nativeUsdRate(chain) : null;
     const unique = new Map<string, NotificationRecipient>();
     for (const recipient of recipients) {
+      // Cross-chain wallet records are useful for monitoring, but an NFT collection
+      // only receives alerts for transactions on the collection's own chain.
+      if (recipient.chainId !== activity.chainId) continue;
       unique.set(`${recipient.telegramId}:${recipient.collectionId}`, recipient);
     }
     await this.outbox.enqueue([...unique.values()].map((recipient) => ({
       eventKey: `activity:${activity.chainId}:${activity.hash.toLowerCase()}:${recipient.telegramId}:${recipient.collectionId}`,
       telegramId: recipient.telegramId,
-      messageText: formatActivityAlert(recipient, activity, this.env),
+      messageText: formatActivityAlert(recipient, activity, this.env, nativeUsdRate),
     })));
   }
 

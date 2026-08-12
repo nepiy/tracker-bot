@@ -85,12 +85,14 @@ describe("outgoing transaction filtering", () => {
 
   it("fans a collection alert out to a subscribed group", async () => {
     const send = vi.fn(async () => undefined);
+    const personalRecipients = vi.fn(async () => []);
+    const groupRecipients = vi.fn(async () => [
+      { telegramId: -100123, collectionId: "collection", collectionName: "FishBroker", chainId: 1 },
+    ]);
     const repositories = {
       transactions: { claim: async () => true, storeActivity: async () => undefined },
-      subscriptions: { recipientsForWallet: async () => [] },
-      groupSubscriptions: {
-        recipientsForWallet: async () => [{ telegramId: -100123, collectionId: "collection", collectionName: "FishBroker" }],
-      },
+      subscriptions: { recipientsForWallet: personalRecipients },
+      groupSubscriptions: { recipientsForWallet: groupRecipients },
     } as unknown as Repositories;
     const block: ProcessableBlock = {
       number: 10n,
@@ -111,9 +113,11 @@ describe("outgoing transaction filtering", () => {
       { send } as unknown as NotificationService,
     );
     expect(send).toHaveBeenCalledWith(
-      [{ telegramId: -100123, collectionId: "collection", collectionName: "FishBroker" }],
+      [{ telegramId: -100123, collectionId: "collection", collectionName: "FishBroker", chainId: 1 }],
       expect.any(Object),
     );
+    expect(personalRecipients).toHaveBeenCalledWith("wallet", 1);
+    expect(groupRecipients).toHaveBeenCalledWith("wallet", 1);
   });
 
   it("releases the transaction claim when notification enqueueing fails", async () => {

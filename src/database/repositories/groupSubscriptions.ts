@@ -91,7 +91,7 @@ export class GroupSubscriptionsRepository {
     return Boolean(data?.length);
   }
 
-  async recipientsForWallet(walletId: string): Promise<NotificationRecipient[]> {
+  async recipientsForWallet(walletId: string, chainId: number): Promise<NotificationRecipient[]> {
     const { data: links, error: linkError } = await this.db
       .from("collection_wallets")
       .select("collection_id")
@@ -103,17 +103,19 @@ export class GroupSubscriptionsRepository {
 
     const { data, error } = await this.db
       .from("group_subscriptions")
-      .select("chat_id,collection_id,collections!inner(name)")
+      .select("chat_id,collection_id,collections!inner(name,chain_id)")
       .in("collection_id", collectionIds)
       .eq("active", true);
     assertDatabaseResult(error, "find group notification recipients");
-    return (data ?? []).map((row) => {
-      const collection = row.collections as unknown as { name: string };
-      return {
+    return (data ?? []).flatMap((row) => {
+      const collection = row.collections as unknown as { name: string; chain_id: number };
+      if (Number(collection.chain_id) !== chainId) return [];
+      return [{
         telegramId: Number(row.chat_id),
         collectionName: collection.name,
         collectionId: String(row.collection_id),
-      };
+        chainId: Number(collection.chain_id),
+      }];
     });
   }
 }
