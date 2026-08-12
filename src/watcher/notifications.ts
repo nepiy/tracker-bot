@@ -12,6 +12,7 @@ import type {
   UpcomingMintStage,
 } from "../opensea/upcomingDrops.js";
 import type { NftPriceAlertRecipient } from "../database/repositories/nftPriceAlerts.js";
+import { formatTokenWithUsd } from "../utils/price.js";
 import type { TelegramOutboxRepository } from "../database/repositories/telegramOutbox.js";
 
 export interface ActivityNotification {
@@ -84,11 +85,7 @@ export interface NftPriceTargetNotification {
   alert: NftPriceAlertRecipient;
   currentFloor: string;
   currencySymbol: string;
-}
-
-function compactDecimal(value: string): string {
-  if (!value.includes(".")) return value;
-  return value.replace(/0+$/, "").replace(/\.$/, "");
+  usdRate: string | null;
 }
 
 export function formatNftPriceTargetAlert(notification: NftPriceTargetNotification): string {
@@ -100,8 +97,8 @@ export function formatNftPriceTargetAlert(notification: NftPriceTargetNotificati
     `Collection: ${alert.collectionName}`,
     `Chain: ${titleCase(alert.chain)}`,
     `Condition: Floor ${movement} your target`,
-    `Target: ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
-    `Current floor: ${compactDecimal(notification.currentFloor)} ${notification.currencySymbol}`,
+    `Target: ${formatTokenWithUsd(alert.targetPrice, alert.currencySymbol, notification.usdRate)}`,
+    `Current floor: ${formatTokenWithUsd(notification.currentFloor, notification.currencySymbol, notification.usdRate)}`,
     "",
     "This was a one-time alert and has now expired.",
     "",

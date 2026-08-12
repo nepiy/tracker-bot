@@ -12,6 +12,8 @@ export interface CreateNftPriceAlert {
   targetPrice: string;
   initialFloorPrice: string;
   currencySymbol: string;
+  currencyAddress: string | null;
+  usdRate: string | null;
   direction: NftPriceAlertDirection;
 }
 
@@ -26,6 +28,8 @@ export interface NftPriceAlertView {
   initialFloorPrice: string;
   lastFloorPrice: string | null;
   currencySymbol: string;
+  currencyAddress: string | null;
+  usdRate: string | null;
   direction: NftPriceAlertDirection;
   status: "active" | "sending";
   claimedAt: string | null;
@@ -47,6 +51,8 @@ interface NftPriceAlertRow {
   initial_floor_price: string;
   last_floor_price: string | null;
   currency_symbol: string;
+  currency_address: string | null;
+  last_usd_rate: string | null;
   direction: NftPriceAlertDirection;
   status: "active" | "sending" | "triggered" | "cancelled";
   claimed_at: string | null;
@@ -65,6 +71,8 @@ const ALERT_COLUMNS = [
   "initial_floor_price",
   "last_floor_price",
   "currency_symbol",
+  "currency_address",
+  "last_usd_rate",
   "direction",
   "status",
   "claimed_at",
@@ -83,6 +91,8 @@ function toView(row: NftPriceAlertRow): NftPriceAlertView {
     initialFloorPrice: String(row.initial_floor_price),
     lastFloorPrice: row.last_floor_price === null ? null : String(row.last_floor_price),
     currencySymbol: String(row.currency_symbol),
+    currencyAddress: row.currency_address === null ? null : String(row.currency_address),
+    usdRate: row.last_usd_rate === null ? null : String(row.last_usd_rate),
     direction: row.direction,
     status: row.status === "sending" ? "sending" : "active",
     claimedAt: row.claimed_at === null ? null : String(row.claimed_at),
@@ -106,6 +116,9 @@ export class NftPriceAlertsRepository {
         initial_floor_price: input.initialFloorPrice,
         last_floor_price: input.initialFloorPrice,
         currency_symbol: input.currencySymbol,
+        currency_address: input.currencyAddress,
+        last_usd_rate: input.usdRate,
+        last_usd_rate_at: input.usdRate === null ? null : new Date().toISOString(),
         direction: input.direction,
       })
       .select(ALERT_COLUMNS)
@@ -161,14 +174,24 @@ export class NftPriceAlertsRepository {
     }));
   }
 
-  async recordFloor(slug: string, floorPrice: string, checkedAt: Date): Promise<void> {
+  async recordFloor(
+    slug: string,
+    floorPrice: string,
+    usdRate: string | null,
+    checkedAt: Date,
+  ): Promise<void> {
+    const update: Record<string, string> = {
+      last_floor_price: floorPrice,
+      last_checked_at: checkedAt.toISOString(),
+      updated_at: checkedAt.toISOString(),
+    };
+    if (usdRate !== null) {
+      update.last_usd_rate = usdRate;
+      update.last_usd_rate_at = checkedAt.toISOString();
+    }
     const { error } = await this.db
       .from("nft_price_alerts")
-      .update({
-        last_floor_price: floorPrice,
-        last_checked_at: checkedAt.toISOString(),
-        updated_at: checkedAt.toISOString(),
-      })
+      .update(update)
       .eq("opensea_slug", slug)
       .eq("status", "active");
     assertDatabaseResult(error, "record NFT collection floor price");

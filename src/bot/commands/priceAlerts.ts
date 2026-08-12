@@ -5,6 +5,7 @@ import type {
   NftPriceAlertView,
 } from "../../database/repositories/nftPriceAlerts.js";
 import { getCollectionInfo } from "../../opensea/collectionInfo.js";
+import { compactDecimal, formatTokenWithUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { replyWithError } from "../helpers.js";
 import { editMessageSafely, homeKeyboard } from "../ui.js";
@@ -23,11 +24,6 @@ const TARGET_PROMPT_PREFIX = "🎯 Choose your floor-price target";
 
 function privateChatOnly(ctx: BotContext): boolean {
   return ctx.chat?.type === "private";
-}
-
-function compactDecimal(value: string): string {
-  if (!value.includes(".")) return value;
-  return value.replace(/0+$/, "").replace(/\.$/, "");
 }
 
 export function parseNftTargetPrice(input: string): string | null {
@@ -72,8 +68,8 @@ export function formatNftPriceAlerts(alerts: NftPriceAlertView[]): string {
     "",
     ...alerts.flatMap((alert, index) => [
       `${index + 1}. ${alert.collectionName}`,
-      `   Alert when floor ${directionText(alert.direction)} ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
-      `   Last floor: ${compactDecimal(alert.lastFloorPrice ?? alert.initialFloorPrice)} ${alert.currencySymbol}`,
+      `   Alert when floor ${directionText(alert.direction)} ${formatTokenWithUsd(alert.targetPrice, alert.currencySymbol, alert.usdRate)}`,
+      `   Last floor: ${formatTokenWithUsd(alert.lastFloorPrice ?? alert.initialFloorPrice, alert.currencySymbol, alert.usdRate)}`,
       `   Status: ${alert.status === "sending" ? "🟡 Delivering notification" : "🟢 Watching"}`,
       `   https://opensea.io/collection/${alert.slug}`,
       "",
@@ -87,9 +83,9 @@ export function formatNftPriceAlertDetails(alert: NftPriceAlertView, confirmCanc
     confirmCancel ? "⚠️ CANCEL FLOOR-PRICE ALERT?" : "🎯 FLOOR-PRICE ALERT DETAILS",
     "",
     `Collection: ${alert.collectionName}`,
-    `Condition: Floor ${directionText(alert.direction)} ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
-    `Initial floor: ${compactDecimal(alert.initialFloorPrice)} ${alert.currencySymbol}`,
-    `Last checked floor: ${compactDecimal(alert.lastFloorPrice ?? alert.initialFloorPrice)} ${alert.currencySymbol}`,
+    `Condition: Floor ${directionText(alert.direction)} ${formatTokenWithUsd(alert.targetPrice, alert.currencySymbol, alert.usdRate)}`,
+    `Initial floor: ${formatTokenWithUsd(alert.initialFloorPrice, alert.currencySymbol, alert.usdRate)}`,
+    `Last checked floor: ${formatTokenWithUsd(alert.lastFloorPrice ?? alert.initialFloorPrice, alert.currencySymbol, alert.usdRate)}`,
     `Status: ${alert.status === "sending" ? "🟡 Delivering notification" : "🟢 Watching"}`,
     "",
     `https://opensea.io/collection/${alert.slug}`,
@@ -114,13 +110,14 @@ function targetPrompt(
   slug: string,
   floorPrice: number,
   symbol: string,
+  usdRate: string | null,
 ): string {
   return [
     TARGET_PROMPT_PREFIX,
     "",
     `Collection: ${name}`,
     `Collection slug: ${slug}`,
-    `Current floor: ${floorPrice} ${symbol}`,
+    `Current floor: ${formatTokenWithUsd(floorPrice, symbol, usdRate)}`,
     "",
     `Reply with a target price in ${symbol}, for example: 0.01`,
     "",
@@ -166,7 +163,13 @@ async function requestTarget(
       return;
     }
     await ctx.api.deleteMessage(ctx.chat!.id, progress.message_id).catch(() => undefined);
-    await ctx.reply(targetPrompt(info.name, info.slug, info.floorPrice, info.floorPriceSymbol), {
+    await ctx.reply(targetPrompt(
+      info.name,
+      info.slug,
+      info.floorPrice,
+      info.floorPriceSymbol,
+      info.floorPriceUsdRate,
+    ), {
       reply_markup: {
         force_reply: true,
         selective: true,
@@ -221,6 +224,8 @@ async function createTarget(
       targetPrice,
       initialFloorPrice: String(info.floorPrice),
       currencySymbol: info.floorPriceSymbol,
+      currencyAddress: info.floorPriceCurrencyAddress,
+      usdRate: info.floorPriceUsdRate,
       direction,
     });
     const keyboard = new InlineKeyboard()
@@ -233,8 +238,8 @@ async function createTarget(
         "✅ One-time NFT price alert created",
         "",
         `Collection: ${info.name}`,
-        `Current floor: ${info.floorPrice} ${info.floorPriceSymbol}`,
-        `Target: ${compactDecimal(targetPrice)} ${info.floorPriceSymbol}`,
+        `Current floor: ${formatTokenWithUsd(info.floorPrice, info.floorPriceSymbol, info.floorPriceUsdRate)}`,
+        `Target: ${formatTokenWithUsd(targetPrice, info.floorPriceSymbol, info.floorPriceUsdRate)}`,
         `Trigger: Floor ${directionText(direction)} the target`,
         "",
         "After the notification is delivered, this target expires automatically.",

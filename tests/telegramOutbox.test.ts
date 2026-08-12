@@ -143,6 +143,8 @@ describe("durable Telegram notification outbox", () => {
         initialFloorPrice: "0.02",
         lastFloorPrice: "0.01",
         currencySymbol: "ETH",
+        currencyAddress: "0x0000000000000000000000000000000000000000",
+        usdRate: "3000",
         direction: "at_or_below",
         status: "sending",
         claimedAt: "2026-08-12T08:00:00.000Z",
@@ -150,6 +152,7 @@ describe("durable Telegram notification outbox", () => {
       },
       currentFloor: "0.01",
       currencySymbol: "ETH",
+      usdRate: "3000",
     });
 
     expect(enqueue).toHaveBeenCalledTimes(5);

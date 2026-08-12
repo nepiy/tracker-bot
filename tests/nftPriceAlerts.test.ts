@@ -11,6 +11,7 @@ import {
 import { getOpenSeaFloorPrice } from "../src/opensea/floorPrice.js";
 import { NftPriceAlertWatcher, priceTargetReached } from "../src/watcher/nftPriceAlerts.js";
 import { formatNftPriceTargetAlert } from "../src/watcher/notifications.js";
+import { formatTokenWithUsd } from "../src/utils/price.js";
 
 const alert: NftPriceAlertRecipient = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -24,6 +25,8 @@ const alert: NftPriceAlertRecipient = {
   initialFloorPrice: "0.002000000000000000",
   lastFloorPrice: "0.001500000000000000",
   currencySymbol: "ETH",
+  currencyAddress: "0x0000000000000000000000000000000000000000",
+  usdRate: "2000",
   direction: "at_or_below",
   status: "active",
   claimedAt: null,
@@ -43,6 +46,13 @@ describe("one-time NFT floor price alerts", () => {
     expect(parseNftTargetPrice("0.1234567890123456789")).toBeNull();
   });
 
+  it("formats live USD equivalents safely without scientific notation", () => {
+    expect(formatTokenWithUsd(0.0019, "ETH", "2000")).toBe("0.0019 ETH (≈ $3.80)");
+    expect(formatTokenWithUsd(0.0000001, "ETH", "2000")).toBe("0.0000001 ETH (≈ <$0.01)");
+    expect(formatTokenWithUsd("0.0019", "ETH", null)).toBe("0.0019 ETH");
+    expect(formatTokenWithUsd("0.0019", "ETH", "invalid")).toBe("0.0019 ETH");
+  });
+
   it("triggers only after the floor crosses the configured direction", () => {
     expect(priceTargetReached("at_or_below", 0.0011, "0.001")).toBe(false);
     expect(priceTargetReached("at_or_below", 0.001, "0.001")).toBe(true);
@@ -54,8 +64,8 @@ describe("one-time NFT floor price alerts", () => {
   it("formats active targets and explains that a delivered target expires", () => {
     const dashboard = formatNftPriceAlerts([alert]);
     expect(dashboard).toContain("1 active");
-    expect(dashboard).toContain("falls to or below 0.001 ETH");
-    expect(dashboard).toContain("Last floor: 0.0015 ETH");
+    expect(dashboard).toContain("falls to or below 0.001 ETH (≈ $2.00)");
+    expect(dashboard).toContain("Last floor: 0.0015 ETH (≈ $3.00)");
     expect(dashboard).toContain("Status: 🟢 Watching");
     expect(alertListKeyboard([alert]).inline_keyboard[1]?.[0]?.callback_data).toBe(`price-alert:manage:${alert.id}`);
     expect(alertListKeyboard([alert]).inline_keyboard.flat().some((button) => button.callback_data?.includes("cancel"))).toBe(false);
@@ -70,10 +80,11 @@ describe("one-time NFT floor price alerts", () => {
       alert,
       currentFloor: "0.000900000000000000",
       currencySymbol: "ETH",
+      usdRate: "2000",
     });
     expect(notification).toContain("NFT FLOOR PRICE TARGET REACHED");
-    expect(notification).toContain("Target: 0.001 ETH");
-    expect(notification).toContain("Current floor: 0.0009 ETH");
+    expect(notification).toContain("Target: 0.001 ETH (≈ $2.00)");
+    expect(notification).toContain("Current floor: 0.0009 ETH (≈ $1.80)");
     expect(notification).toContain("one-time alert and has now expired");
   });
 
@@ -109,17 +120,22 @@ describe("one-time NFT floor price alerts", () => {
     (watcher as unknown as { notifications: { sendNftPriceTarget: typeof sendNftPriceTarget } }).notifications = {
       sendNftPriceTarget,
     };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      total: { floor_price: 0.0009, floor_price_symbol: "ETH" },
-    }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const body = url.pathname.includes("/token/")
+        ? { symbol: "ETH", decimals: 18, usd_price: "2100" }
+        : { total: { floor_price: 0.0009, floor_price_symbol: "ETH" } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
     const now = new Date("2026-08-12T00:10:00Z");
 
     await watcher.pollOnce(now);
 
-    expect(nftPriceAlerts.recordFloor).toHaveBeenCalledWith("fishbroker", "0.0009", now);
+    expect(nftPriceAlerts.recordFloor).toHaveBeenCalledWith("fishbroker", "0.0009", "2100", now);
     expect(nftPriceAlerts.claim).toHaveBeenCalledWith(alert.id, now);
     expect(sendNftPriceTarget).toHaveBeenCalledWith(alert.telegramId, expect.objectContaining({
       currentFloor: "0.0009",
+      usdRate: "2100",
     }));
     expect(nftPriceAlerts.markTriggered).toHaveBeenCalledWith(alert.id, "0.0009", now);
     expect(nftPriceAlerts.release).not.toHaveBeenCalled();
@@ -143,9 +159,13 @@ describe("one-time NFT floor price alerts", () => {
     (watcher as unknown as { notifications: { sendNftPriceTarget: typeof sendNftPriceTarget } }).notifications = {
       sendNftPriceTarget,
     };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      total: { floor_price: 0.0009, floor_price_symbol: "ETH" },
-    }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const body = url.pathname.includes("/token/")
+        ? { symbol: "ETH", decimals: 18, usd_price: "2100" }
+        : { total: { floor_price: 0.0009, floor_price_symbol: "ETH" } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }));
 
     await watcher.pollOnce(new Date("2026-08-12T00:10:00Z"));
 

@@ -63,6 +63,8 @@ describe("Telegram collection dashboard", () => {
         initialFloorPrice: "0.002",
         lastFloorPrice: "0.0015",
         currencySymbol: "ETH",
+        currencyAddress: "0x0000000000000000000000000000000000000000",
+        usdRate: "2000",
         direction: "at_or_below",
         status: "active",
         claimedAt: null,
@@ -75,7 +77,7 @@ describe("Telegram collection dashboard", () => {
     expect(text).toContain("📡 Collections: 1");
     expect(text).toContain("👛 Wallets: 1 address • 2 network monitors");
     expect(text).toContain("0x57ff...004f — Ethereum, Base");
-    expect(text).toContain("FishBroker — floor ≤ 0.001 ETH");
+    expect(text).toContain("FishBroker — floor ≤ 0.001 ETH (≈ $2.00)");
     expect(text).toContain("Free-mint alerts: 🟢 ON");
     expect(text).toContain("managed inside each Telegram group");
   });

@@ -126,6 +126,8 @@ export interface CollectionInfo {
   mint: CollectionMintInfo | null;
   floorPrice: number | null;
   floorPriceSymbol: string | null;
+  floorPriceCurrencyAddress: string | null;
+  floorPriceUsdRate: string | null;
   topOffer: CollectionAmount | null;
   volume24h: number | null;
   priceChange24hPercent: number | null;
@@ -401,6 +403,13 @@ export async function getCollectionInfo(
   const listingSymbol = collection.pricing_currencies?.listing_currency?.symbol?.trim()
     || allCurrencies(collection).find((currency) => currency.symbol)?.symbol?.trim()
     || null;
+  const floorPriceSymbol = stats?.total?.floor_price_symbol?.trim() || listingSymbol;
+  const floorCurrency = floorPriceSymbol
+    ? allCurrencies(collection).find((currency) => (
+      currency.symbol?.trim().toLowerCase() === floorPriceSymbol.toLowerCase()
+      && currency.address
+    )) ?? null
+    : null;
   return {
     slug,
     name: collection.name?.trim() || slug,
@@ -412,7 +421,9 @@ export async function getCollectionInfo(
     ownerEnsName: owner.ensName,
     mint,
     floorPrice: Number.isFinite(stats?.total?.floor_price) ? stats!.total!.floor_price! : null,
-    floorPriceSymbol: stats?.total?.floor_price_symbol?.trim() || listingSymbol,
+    floorPriceSymbol,
+    floorPriceCurrencyAddress: floorCurrency?.address?.toLowerCase() ?? null,
+    floorPriceUsdRate: floorCurrency?.usd_price ?? null,
     topOffer: topOffer(offers, collection),
     volume24h: Number.isFinite(day?.volume) ? day!.volume! : null,
     priceChange24hPercent: floorPriceChange(floorPrices, contract.chain, now),

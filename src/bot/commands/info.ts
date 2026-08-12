@@ -16,6 +16,7 @@ import {
   type CollectionMintInfo,
 } from "../../opensea/collectionInfo.js";
 import { isFreeMintPrice } from "../../opensea/upcomingDrops.js";
+import { formatTokenWithUsd, formatUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { replyWithError } from "../helpers.js";
 
@@ -64,19 +65,10 @@ function formatNumber(value: number, maximumFractionDigits = 4): string {
   }).format(value);
 }
 
-function formatUsd(value: number): string {
-  if (value > 0 && value < 0.01) return "<$0.01";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatAmount(value: CollectionAmount | null): string {
   if (!value) return "No active offer";
-  const usd = value.approximateUsd === null ? "" : ` (≈ ${formatUsd(value.approximateUsd)})`;
+  const formattedUsd = value.approximateUsd === null ? null : formatUsd(value.approximateUsd);
+  const usd = formattedUsd === null ? "" : ` (≈ ${formattedUsd})`;
   return `${value.amount} ${value.symbol}${usd}`;
 }
 
@@ -125,7 +117,9 @@ export function formatCollectionInfo(info: CollectionInfo): string {
     : ["Not provided by OpenSea"];
   const marketLine = info.mint
     ? mintLines(info.mint)
-    : [`Floor price: ${info.floorPrice === null ? "Not available" : `${formatNumber(info.floorPrice, 8)} ${info.floorPriceSymbol ?? ""}`.trim()}`];
+    : [`Floor price: ${info.floorPrice === null || !info.floorPriceSymbol
+      ? "Not available"
+      : formatTokenWithUsd(info.floorPrice, info.floorPriceSymbol, info.floorPriceUsdRate)}`];
   const change = info.priceChange24hPercent === null
     ? "Not available"
     : `${info.priceChange24hPercent >= 0 ? "+" : ""}${formatNumber(info.priceChange24hPercent, 2)}% (floor price)`;

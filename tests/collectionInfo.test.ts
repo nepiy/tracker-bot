@@ -89,6 +89,8 @@ describe("OpenSea collection information", () => {
       mint: null,
       floorPrice: 0.25,
       floorPriceSymbol: "ETH",
+      floorPriceCurrencyAddress: "0x0000000000000000000000000000000000000000",
+      floorPriceUsdRate: "2000",
       topOffer: { amount: "0.5", symbol: "WETH", approximateUsd: 1000 },
       volume24h: 12.34567,
       otherCollections: [{
@@ -99,7 +101,7 @@ describe("OpenSea collection information", () => {
     expect(info.priceChange24hPercent).toBeCloseTo(25);
 
     const message = formatCollectionInfo(info);
-    expect(message).toContain("Floor price: 0.25 ETH");
+    expect(message).toContain("Floor price: 0.25 ETH (≈ $500.00)");
     expect(message).toContain("Top offer: 0.5 WETH (≈ $1,000.00)");
     expect(message).toContain("24h volume: 12.3457 ETH");
     expect(message).toContain("24h price change: +25% (floor price)");

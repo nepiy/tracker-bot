@@ -3,6 +3,7 @@ import { logger } from "../config/logger.js";
 import type { NftPriceAlertRecipient } from "../database/repositories/nftPriceAlerts.js";
 import type { Repositories } from "../database/repositories/index.js";
 import { getOpenSeaFloorPrice } from "../opensea/floorPrice.js";
+import { getOpenSeaTokenDetails } from "../opensea/upcomingDrops.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 
@@ -46,6 +47,7 @@ export class NftPriceAlertWatcher {
     if (!alerts.length) return;
 
     const bySlug = new Map<string, NftPriceAlertRecipient[]>();
+    const usdRateLookups = new Map<string, Promise<string | null>>();
     for (const alert of alerts) {
       const group = bySlug.get(alert.slug) ?? [];
       group.push(alert);
@@ -73,7 +75,37 @@ export class NftPriceAlertWatcher {
       }
 
       const floorValue = String(floor.amount);
-      await this.repositories.nftPriceAlerts.recordFloor(slug, floorValue, now);
+      const quoteAlert = collectionAlerts.find((alert) => alert.currencyAddress !== null);
+      let usdRate: string | null = null;
+      if (quoteAlert?.currencyAddress) {
+        const quoteKey = `${quoteAlert.chain}:${quoteAlert.currencyAddress}`;
+        let lookup = usdRateLookups.get(quoteKey);
+        if (!lookup) {
+          lookup = withRetry(
+            () => getOpenSeaTokenDetails(
+              this.env.OPENSEA_API_KEY,
+              quoteAlert.chain,
+              quoteAlert.currencyAddress!,
+            ),
+            {
+              attempts: 2,
+              onRetry: (error, attempt) => logger.warn(
+                { err: error, attempt, chain: quoteAlert.chain, currencyAddress: quoteAlert.currencyAddress },
+                "retrying OpenSea floor-currency USD quote",
+              ),
+            },
+          ).then((token) => token.usdPrice).catch((error) => {
+            logger.warn(
+              { err: error, slug, chain: quoteAlert.chain, currencyAddress: quoteAlert.currencyAddress },
+              "OpenSea floor-currency USD quote unavailable",
+            );
+            return null;
+          });
+          usdRateLookups.set(quoteKey, lookup);
+        }
+        usdRate = await lookup;
+      }
+      await this.repositories.nftPriceAlerts.recordFloor(slug, floorValue, usdRate, now);
       const triggered = collectionAlerts.filter((alert) => (
         alert.currencySymbol.toLowerCase() === floor.symbol.toLowerCase()
         && priceTargetReached(alert.direction, floor.amount, alert.targetPrice)
@@ -94,6 +126,7 @@ export class NftPriceAlertWatcher {
             alert,
             currentFloor: floorValue,
             currencySymbol: floor.symbol,
+            usdRate: usdRate ?? alert.usdRate,
           });
         } catch (error) {
           await this.repositories.nftPriceAlerts.release(alert.id).catch((releaseError) => {

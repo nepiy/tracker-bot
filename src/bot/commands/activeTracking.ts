@@ -3,6 +3,7 @@ import type { NftPriceAlertView } from "../../database/repositories/nftPriceAler
 import type { SubscriptionView } from "../../database/repositories/subscriptions.js";
 import type { WalletSubscriptionView } from "../../database/repositories/walletSubscriptions.js";
 import { shortAddress } from "../../utils/address.js";
+import { formatTokenWithUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { chainLabel, editMessageSafely } from "../ui.js";
 
@@ -13,11 +14,6 @@ export interface ActiveTrackingSummary {
   wallets: WalletSubscriptionView[];
   priceAlerts: NftPriceAlertView[];
   freeMintAlertsEnabled: boolean;
-}
-
-function compactDecimal(value: string): string {
-  if (!value.includes(".")) return value;
-  return value.replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function compactName(value: string, maxLength = 48): string {
@@ -92,7 +88,7 @@ export function formatActiveTracking(summary: ActiveTrackingSummary): string {
       const operator = alert.direction === "at_or_below" ? "≤" : "≥";
       const status = alert.status === "sending" ? "🟡 Queued" : "🟢 Watching";
       lines.push(
-        `• ${compactName(alert.collectionName)} — floor ${operator} ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
+        `• ${compactName(alert.collectionName)} — floor ${operator} ${formatTokenWithUsd(alert.targetPrice, alert.currencySymbol, alert.usdRate)}`,
         `  ${status}`,
       );
     }
