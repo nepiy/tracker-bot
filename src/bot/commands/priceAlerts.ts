@@ -47,11 +47,11 @@ function directionText(direction: NftPriceAlertDirection): string {
   return direction === "at_or_below" ? "falls to or below" : "rises to or above";
 }
 
-function alertListKeyboard(alerts: NftPriceAlertView[]): InlineKeyboard {
+export function alertListKeyboard(alerts: NftPriceAlertView[]): InlineKeyboard {
   const keyboard = new InlineKeyboard().text("➕ Add price alert", "menu:price-alert-add").row();
   for (const alert of alerts) {
     keyboard
-      .text(`🛑 ${alert.collectionName} • ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`, `price-alert:cancel:${alert.id}`)
+      .text(`⚙️ ${alert.collectionName} • ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`, `price-alert:manage:${alert.id}`)
       .row();
   }
   return keyboard.text("🔄 Refresh", "menu:price-alerts").text("🏠 Menu", "menu:home");
@@ -68,17 +68,45 @@ export function formatNftPriceAlerts(alerts: NftPriceAlertView[]): string {
     ].join("\n");
   }
   return [
-    `🎯 NFT floor-price alerts • ${alerts.length} active`,
+    `🎯 NFT floor-price alerts • ${alerts.length} active or pending`,
     "",
     ...alerts.flatMap((alert, index) => [
       `${index + 1}. ${alert.collectionName}`,
       `   Alert when floor ${directionText(alert.direction)} ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
       `   Last floor: ${compactDecimal(alert.lastFloorPrice ?? alert.initialFloorPrice)} ${alert.currencySymbol}`,
+      `   Status: ${alert.status === "sending" ? "🟡 Delivering notification" : "🟢 Watching"}`,
       `   https://opensea.io/collection/${alert.slug}`,
       "",
     ]),
     "Each target sends once and expires after successful delivery.",
   ].join("\n");
+}
+
+export function formatNftPriceAlertDetails(alert: NftPriceAlertView, confirmCancel = false): string {
+  return [
+    confirmCancel ? "⚠️ CANCEL FLOOR-PRICE ALERT?" : "🎯 FLOOR-PRICE ALERT DETAILS",
+    "",
+    `Collection: ${alert.collectionName}`,
+    `Condition: Floor ${directionText(alert.direction)} ${compactDecimal(alert.targetPrice)} ${alert.currencySymbol}`,
+    `Initial floor: ${compactDecimal(alert.initialFloorPrice)} ${alert.currencySymbol}`,
+    `Last checked floor: ${compactDecimal(alert.lastFloorPrice ?? alert.initialFloorPrice)} ${alert.currencySymbol}`,
+    `Status: ${alert.status === "sending" ? "🟡 Delivering notification" : "🟢 Watching"}`,
+    "",
+    `https://opensea.io/collection/${alert.slug}`,
+    ...(confirmCancel ? ["", "This removes the target without sending a notification. This cannot be undone."] : []),
+  ].join("\n");
+}
+
+function alertDetailsKeyboard(alert: NftPriceAlertView, confirmCancel = false): InlineKeyboard {
+  if (confirmCancel) {
+    return new InlineKeyboard()
+      .text("✅ Yes, cancel alert", `price-alert:confirm-cancel:${alert.id}`)
+      .row()
+      .text("↩️ Keep alert", `price-alert:manage:${alert.id}`);
+  }
+  const keyboard = new InlineKeyboard();
+  if (alert.status === "active") keyboard.text("🗑 Cancel Alert", `price-alert:cancel:${alert.id}`).row();
+  return keyboard.text("⬅️ All Alerts", "menu:price-alerts").text("🏠 Menu", "menu:home");
 }
 
 function targetPrompt(
@@ -267,7 +295,38 @@ export function registerNftPriceAlertCommands(
     await editMessageSafely(ctx, formatNftPriceAlerts(alerts), alertListKeyboard(alerts));
   });
 
+  const loadOwnedAlert = async (ctx: BotContext, alertId: string): Promise<NftPriceAlertView | null> => {
+    if (!ctx.from) return null;
+    const user = await dependencies.repositories.users.ensure(ctx.from.id);
+    const alerts = await dependencies.repositories.nftPriceAlerts.listActive(user.id);
+    return alerts.find((alert) => alert.id === alertId) ?? null;
+  };
+
+  bot.callbackQuery(/^price-alert:manage:([0-9a-f-]{36})$/, async (ctx) => {
+    if (!privateChatOnly(ctx)) return;
+    await ctx.answerCallbackQuery();
+    const alert = await loadOwnedAlert(ctx, ctx.match[1]!);
+    if (!alert) {
+      const alerts = await loadAlerts(ctx, dependencies);
+      await editMessageSafely(ctx, formatNftPriceAlerts(alerts), alertListKeyboard(alerts));
+      return;
+    }
+    await editMessageSafely(ctx, formatNftPriceAlertDetails(alert), alertDetailsKeyboard(alert));
+  });
+
   bot.callbackQuery(/^price-alert:cancel:([0-9a-f-]{36})$/, async (ctx) => {
+    if (!privateChatOnly(ctx)) return;
+    await ctx.answerCallbackQuery();
+    const alert = await loadOwnedAlert(ctx, ctx.match[1]!);
+    if (!alert || alert.status !== "active") {
+      const alerts = await loadAlerts(ctx, dependencies);
+      await editMessageSafely(ctx, formatNftPriceAlerts(alerts), alertListKeyboard(alerts));
+      return;
+    }
+    await editMessageSafely(ctx, formatNftPriceAlertDetails(alert, true), alertDetailsKeyboard(alert, true));
+  });
+
+  bot.callbackQuery(/^price-alert:confirm-cancel:([0-9a-f-]{36})$/, async (ctx) => {
     if (!ctx.from || !privateChatOnly(ctx)) return;
     const user = await dependencies.repositories.users.ensure(ctx.from.id);
     const cancelled = await dependencies.repositories.nftPriceAlerts.cancel(user.id, ctx.match[1]!);

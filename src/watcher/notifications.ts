@@ -215,7 +215,7 @@ export class NotificationService {
   private readonly api: Api;
 
   constructor(private readonly env: AppEnv) {
-    this.api = new Api(env.TELEGRAM_BOT_TOKEN);
+    this.api = new Api(env.TELEGRAM_BOT_TOKEN, { timeoutSeconds: 15 });
   }
 
   async send(recipients: NotificationRecipient[], activity: ActivityNotification): Promise<void> {

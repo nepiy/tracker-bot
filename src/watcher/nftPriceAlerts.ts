@@ -6,7 +6,7 @@ import { getOpenSeaFloorPrice } from "../opensea/floorPrice.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 
-const STALE_CLAIM_MS = 5 * 60 * 1_000;
+const STALE_CLAIM_MS = 60 * 1_000;
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -78,6 +78,13 @@ export class NftPriceAlertWatcher {
         alert.currencySymbol.toLowerCase() === floor.symbol.toLowerCase()
         && priceTargetReached(alert.direction, floor.amount, alert.targetPrice)
       ));
+      logger.debug({
+        slug,
+        floor: floorValue,
+        symbol: floor.symbol,
+        evaluatedAlerts: collectionAlerts.length,
+        reachedAlerts: triggered.length,
+      }, "evaluated NFT floor price targets");
 
       const outcomes = await Promise.allSettled(triggered.map(async (alert) => {
         const claimed = await this.repositories.nftPriceAlerts.claim(alert.id, now);

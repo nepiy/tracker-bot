@@ -27,6 +27,8 @@ export interface NftPriceAlertView {
   lastFloorPrice: string | null;
   currencySymbol: string;
   direction: NftPriceAlertDirection;
+  status: "active" | "sending";
+  claimedAt: string | null;
   createdAt: string;
 }
 
@@ -46,6 +48,8 @@ interface NftPriceAlertRow {
   last_floor_price: string | null;
   currency_symbol: string;
   direction: NftPriceAlertDirection;
+  status: "active" | "sending" | "triggered" | "cancelled";
+  claimed_at: string | null;
   created_at: string;
   users?: { telegram_id: number };
 }
@@ -62,6 +66,8 @@ const ALERT_COLUMNS = [
   "last_floor_price",
   "currency_symbol",
   "direction",
+  "status",
+  "claimed_at",
   "created_at",
 ].join(",");
 
@@ -78,6 +84,8 @@ function toView(row: NftPriceAlertRow): NftPriceAlertView {
     lastFloorPrice: row.last_floor_price === null ? null : String(row.last_floor_price),
     currencySymbol: String(row.currency_symbol),
     direction: row.direction,
+    status: row.status === "sending" ? "sending" : "active",
+    claimedAt: row.claimed_at === null ? null : String(row.claimed_at),
     createdAt: String(row.created_at),
   };
 }
@@ -113,7 +121,7 @@ export class NftPriceAlertsRepository {
       .from("nft_price_alerts")
       .select(ALERT_COLUMNS)
       .eq("user_id", userId)
-      .eq("status", "active")
+      .in("status", ["active", "sending"])
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list NFT floor price alerts");
     return ((data ?? []) as unknown as NftPriceAlertRow[]).map(toView);
@@ -182,7 +190,7 @@ export class NftPriceAlertsRepository {
   }
 
   async markTriggered(alertId: string, floorPrice: string, triggeredAt: Date): Promise<void> {
-    const { error } = await this.db
+    const { data, error } = await this.db
       .from("nft_price_alerts")
       .update({
         status: "triggered",
@@ -193,8 +201,10 @@ export class NftPriceAlertsRepository {
         updated_at: triggeredAt.toISOString(),
       })
       .eq("id", alertId)
-      .eq("status", "sending");
+      .eq("status", "sending")
+      .select("id");
     assertDatabaseResult(error, "expire delivered NFT floor price alert");
+    if (data?.length !== 1) throw new Error("Delivered NFT floor price alert was not expired");
   }
 
   async release(alertId: string): Promise<void> {
