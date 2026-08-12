@@ -2,8 +2,23 @@ import { InlineKeyboard, type Bot } from "grammy";
 import type { GroupSubscriptionView } from "../../database/repositories/groupSubscriptions.js";
 import { shortAddress } from "../../utils/address.js";
 import type { BotContext, BotDependencies } from "../context.js";
-import { requireGroupAdmin } from "../groupAdmin.js";
+import { isGroupChat, requireGroupAdmin } from "../groupAdmin.js";
 import { chainLabel, editMessageSafely } from "../ui.js";
+
+export const ADD_TO_GROUP_TEXT = [
+  "👥 Add the bot to a Telegram group",
+  "",
+  "1. Tap Choose a Group below.",
+  "2. Select the group and confirm.",
+  "3. Promote the bot to group admin so it can verify who manages tracking.",
+  "4. A group admin can then add, review, or stop collection alerts.",
+  "",
+  "Only group admins can manage that group's tracking.",
+].join("\n");
+
+export function groupInstallUrl(botUsername: string): string {
+  return `https://t.me/${encodeURIComponent(botUsername)}?startgroup=tracker`;
+}
 
 export function formatGroupSubscriptions(subscriptions: GroupSubscriptionView[]): string {
   if (!subscriptions.length) {
@@ -59,6 +74,20 @@ export function registerGroupCommands(
   dependencies: BotDependencies,
   requestGroupTrack: (ctx: BotContext) => Promise<void>,
 ): void {
+  bot.callbackQuery("menu:add-group", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (isGroupChat(ctx)) {
+      if (!await requireGroupAdmin(ctx)) return;
+      await showGroupSubscriptions(ctx, dependencies, true);
+      return;
+    }
+    const keyboard = new InlineKeyboard()
+      .url("➕ Choose a Group", groupInstallUrl(ctx.me.username))
+      .row()
+      .text("🏠 Main menu", "menu:home");
+    await editMessageSafely(ctx, ADD_TO_GROUP_TEXT, keyboard);
+  });
+
   bot.command("grouplist", async (ctx) => {
     if (!await requireGroupAdmin(ctx)) return;
     await showGroupSubscriptions(ctx, dependencies, false);

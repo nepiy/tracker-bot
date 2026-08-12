@@ -5,7 +5,7 @@ import { formatCollectionDetails, formatTrackedCollections } from "../src/bot/co
 import { activityMatchesFilter, formatActivityAction } from "../src/bot/commands/activity.js";
 import { chainLabel, explorerAddressUrl, MAIN_MENU_TEXT, mainMenuKeyboard } from "../src/bot/ui.js";
 import { formatWalletSubscriptions } from "../src/bot/commands/wallet.js";
-import { formatGroupSubscriptions } from "../src/bot/commands/group.js";
+import { ADD_TO_GROUP_TEXT, formatGroupSubscriptions, groupInstallUrl } from "../src/bot/commands/group.js";
 import { isAdminStatus } from "../src/bot/groupAdmin.js";
 import { formatSettings } from "../src/bot/commands/settings.js";
 import { formatFreeMintAlert, formatMintPriceChangeAlert } from "../src/watcher/notifications.js";
@@ -23,21 +23,29 @@ const subscription: SubscriptionView = {
 };
 
 describe("Telegram collection dashboard", () => {
-  it("explains and groups the dashboard's four primary workflows", () => {
+  it("explains and groups the dashboard's primary workflows", () => {
     expect(MAIN_MENU_TEXT).toContain("🔎 Research NFT");
     expect(MAIN_MENU_TEXT).toContain("🎯 Floor alerts");
     expect(MAIN_MENU_TEXT).toContain("📡 Collection tracking");
     expect(MAIN_MENU_TEXT).toContain("👛 Wallet tracking");
+    expect(MAIN_MENU_TEXT).toContain("👥 Group tracking");
     expect(MAIN_MENU_TEXT).toContain("Ethereum • Base • Robinhood Chain");
 
     expect(mainMenuKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
+      ["👥 Add to Group"],
       ["🔎 Research NFT", "🎯 Floor Alerts"],
-      ["➕ Track Collection", "📡 My Collections"],
-      ["👛 Track Wallet", "🗂 My Wallets"],
+      ["➕ Track Collection", "📡 Tracking Collections"],
+      ["👛 Track Wallet", "🗂 Tracking Wallets"],
       ["⚡ Recent Activity", "⚙️ Alert Settings"],
       ["🛑 Stop Collection", "❓ Guide"],
       ["🔄 Refresh Dashboard"],
     ]);
+  });
+
+  it("builds the Telegram group picker link and explains admin control", () => {
+    expect(groupInstallUrl("tracker_bot")).toBe("https://t.me/tracker_bot?startgroup=tracker");
+    expect(ADD_TO_GROUP_TEXT).toContain("Choose a Group");
+    expect(ADD_TO_GROUP_TEXT).toContain("Only group admins");
   });
 
   it("guides an empty list toward OpenSea link input", () => {

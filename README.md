@@ -14,7 +14,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 
 ## Current features
 
-- Interactive Telegram dashboard with inline navigation instead of command-only flows
+- Interactive Telegram dashboard with inline navigation and a front-page **Add to Group** action
 - Read-only collection research from an OpenSea URL or Ethereum/Base/Robinhood NFT contract
 - Collection owner, live mint-or-floor details, top offer, 24-hour volume, and floor-price change reporting
 - Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
@@ -41,7 +41,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 
 ## What it does
 
-Open `/start`, tap **Add collection**, and send a URL such as `https://opensea.io/collection/fishbroker`. You can also paste the URL directly. The bot will:
+Open `/start`, tap **Track Collection**, and send a URL such as `https://opensea.io/collection/fishbroker`. You can also paste the URL directly. The bot will:
 
 1. Validate the URL and extract the slug without fetching an arbitrary host.
 2. Resolve the collection name, chain, and contract through OpenSea's v2 API.
@@ -56,7 +56,7 @@ For research without subscribing, tap **Research NFT** or run `/info`. Send eith
 
 For a one-time floor target, tap **Floor Alerts** or run `/pricealert`. After resolving the collection, enter a target in the floor-price currency. A target below the current floor triggers when the floor falls to or below it; a target above the current floor triggers when the floor rises to or above it. The watcher checks each unique collection once per polling cycle, sends the target owner a personal Telegram notification after the threshold is crossed, and expires the alert only after delivery succeeds. Use `/pricealerts` to review or cancel active targets.
 
-The bot can also be added to a Telegram group. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
+The bot can also be added to a Telegram group. Tap **Add to Group** at the top of the dashboard to open Telegram's group picker. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
 
@@ -338,13 +338,13 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
 - `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
 
-The dashboard keeps common actions in inline buttons: research a collection, create or manage floor targets, add a collection or wallet, inspect active subscriptions and activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
+The dashboard keeps common actions in inline buttons: add the bot to a group, research a collection, create or manage floor targets, add a collection or wallet, inspect **Tracking Collections** and **Tracking Wallets**, review activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 
 ### Telegram group setup
 
-1. Add the bot to the group.
+1. In a private chat with the bot, tap **Add to Group** and then **Choose a Group**.
 2. Promote the bot to a group administrator. This lets it reliably verify whether the person changing subscriptions is a group admin.
 3. A group admin sends `/track https://opensea.io/collection/your-collection` or `/grouptrack` and then replies with the OpenSea URL.
 4. Use `/grouplist` to review active group alerts or stop one.
@@ -451,7 +451,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 60 tests across 17 files. It covers dashboard workflow descriptions and action grouping, URL and address validation, collection research by URL and contract, owner/related-collection filtering, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, target notification/expiration behavior, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 61 tests across 17 files. It covers dashboard workflow descriptions and action grouping, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, target notification/expiration behavior, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test

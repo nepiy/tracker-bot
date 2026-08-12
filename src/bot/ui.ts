@@ -11,6 +11,7 @@ export const MAIN_MENU_TEXT = [
   "🎯 Floor alerts — get one notification when a collection floor reaches your chosen target.",
   "📡 Collection tracking — monitor the inferred dev/team wallet for sends, swaps, bridges, and high-risk moves.",
   "👛 Wallet tracking — follow NFT marketplace buys and sells for any EVM wallet.",
+  "👥 Group tracking — add the bot to a group where admins control collection alerts.",
   "",
   "Networks: Ethereum • Base • Robinhood Chain",
   "",
@@ -56,14 +57,16 @@ export const HELP_TEXT = [
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text("👥 Add to Group", "menu:add-group")
+    .row()
     .text("🔎 Research NFT", "menu:info")
     .text("🎯 Floor Alerts", "menu:price-alerts")
     .row()
     .text("➕ Track Collection", "menu:track")
-    .text("📡 My Collections", "menu:list")
+    .text("📡 Tracking Collections", "menu:list")
     .row()
     .text("👛 Track Wallet", "menu:wallet-track")
-    .text("🗂 My Wallets", "menu:wallets")
+    .text("🗂 Tracking Wallets", "menu:wallets")
     .row()
     .text("⚡ Recent Activity", "menu:activity")
     .text("⚙️ Alert Settings", "menu:settings")
