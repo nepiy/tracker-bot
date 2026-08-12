@@ -41,7 +41,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 
 ## What it does
 
-Open `/start`, tap **Track Collection**, and send a URL such as `https://opensea.io/collection/fishbroker`. You can also paste the URL directly. The bot will:
+Open `/start`, tap **Add Collection**, and send a URL such as `https://opensea.io/collection/fishbroker`. You can also paste the URL directly. The bot will:
 
 1. Validate the URL and extract the slug without fetching an arbitrary host.
 2. Resolve the collection name, chain, and contract through OpenSea's v2 API.
@@ -62,7 +62,7 @@ The `/list` dashboard then lets the user inspect the collection, open OpenSea or
 
 Free-mint discovery is optional and disabled for every user by default. Open **Settings** or run `/settings` to enable it for your Telegram account. The watcher reads OpenSea's official upcoming-drops calendar, checks the detailed mint stages, and sends one notification when a public zero-price stage is scheduled to begin within 12 hours. It persists the observed stage price; if that same stage later changes from free to any positive amount, the bot sends a `MINT PRICE CHANGED` warning on the next polling cycle. The warning shows the token amount and an approximate USD value when OpenSea provides a usable quote. Start and end times are always displayed in GMT. Network gas can still apply. Allowlist, creator-reserve, and other gated zero-price stages are intentionally excluded because they are not generally mintable by every user.
 
-For direct wallet tracking, tap **Track wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
+For direct wallet tracking, tap **Add Wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
 Incoming transactions do not alert. A transaction only qualifies when its top-level `from` address equals a currently watched address. The separate watcher process must be running for automatic detection and notifications.
 

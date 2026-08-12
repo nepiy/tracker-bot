@@ -34,8 +34,8 @@ describe("Telegram collection dashboard", () => {
     expect(mainMenuKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
       ["👥 Add to Group"],
       ["🔎 Research NFT", "🎯 Floor Alerts"],
-      ["➕ Track Collection", "📡 Tracking Collection"],
-      ["👛 Track Wallet", "🗂 Tracking Wallet"],
+      ["➕ Add Collection", "📡 Tracking Collection"],
+      ["👛 Add Wallet", "🗂 Tracking Wallet"],
       ["⚡ Recent Activity", "⚙️ Alert Settings"],
       ["🛑 Stop Collection", "❓ Guide"],
       ["🔄 Refresh Dashboard"],
