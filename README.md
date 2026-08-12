@@ -10,7 +10,7 @@ OpenSea collection discovery is intentionally limited to:
 
 The inferred dev address is monitored on all three by default. Additional EVM monitoring networks can be added with RPC/explorer configuration without enabling OpenSea discovery on those chains.
 
-The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the OpenSea API, Etherscan v2, and Blockscout v2.
+The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the OpenSea API, Etherscan v2, Blockscout v2, and DEX Screener's public API.
 
 ## Current features
 
@@ -18,6 +18,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Read-only collection research from an OpenSea URL or Ethereum/Base/Robinhood NFT contract
 - Collection owner, live mint-or-floor details, top offer, 24-hour volume, and floor-price change reporting
 - Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
+- Cross-chain creator-token history for deployer-created ERC-20 contracts with detected DEX markets, omitted when none exist
 - Personal one-time floor-price targets for both downward and upward price movements
 - Automatic target expiration after successful Telegram delivery, with active-target listing and cancellation
 - OpenSea-link input prompt plus direct URL-paste support
@@ -54,6 +55,8 @@ Open `/start`, tap **Add Collection**, and send a URL such as `https://opensea.i
 
 For research without subscribing, tap **Research NFT** or run `/info`. Send either an OpenSea collection URL or an NFT contract on Ethereum, Base, or Robinhood Chain. The bot resolves the official OpenSea collection and returns its link, contract, chain, OpenSea collection-owner wallet, top collection offer, 24-hour volume, and 24-hour floor-price change. When a mint is active or its next stage begins within 12 hours, mint status, access, price, GMT schedule, wallet limit, and available supply details replace the floor-price line. Otherwise, the current floor price is shown. If the owner's OpenSea profile is attributed as the creator of other collections, up to five are included; the section is omitted when there are none.
 
+The same research request also resolves the NFT contract's verified deployment initiator and scans that wallet's direct contract-creation history across every configured EVM monitoring chain. Each created contract is checked for ERC-20 metadata and then matched against DEX Screener. When matches exist, the bot sends the full detected history in Telegram-safe follow-up messages with token name, symbol, chain, creation date, contract, explorer link, DEX link, and available price/liquidity/market-cap data. No creator-token section is sent when there are no matches. This check does not require another API key.
+
 For a one-time floor target, tap **Floor Alerts** or run `/pricealert`. After resolving the collection, enter a target in the floor-price currency. A target below the current floor triggers when the floor falls to or below it; a target above the current floor triggers when the floor rises to or above it. The watcher checks each unique collection once per polling cycle, sends the target owner a personal Telegram notification after the threshold is crossed, and expires the alert only after delivery succeeds. Use `/pricealerts` to review or cancel active targets.
 
 The bot can also be added to a Telegram group. Tap **Add to Group** at the top of the dashboard to open Telegram's group picker. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
@@ -73,7 +76,9 @@ Telegram bot process
   ├─ OpenSea collection information lookup
   │   ├─ URL or supported-chain contract resolution
   │   ├─ owner/profile and related-collection lookup
-  │   └─ drop, floor, offer, volume, and price-history data
+  │   ├─ drop, floor, offer, volume, and price-history data
+  │   └─ deployment initiator history across configured chains
+  │       └─ ERC-20 metadata + DEX market matching
   └─ OpenSea tracking resolver
       └─ chain adapter
           ├─ explorer deployment adapter
@@ -323,7 +328,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 
 - `/start`: open the inline-button dashboard
 - `/help`: setup and command help
-- `/info <OpenSea URL or NFT contract>`: return read-only collection, owner, mint-or-floor, offer, volume, price-change, and related-collection information; `/info` by itself opens the validated input prompt
+- `/info <OpenSea URL or NFT contract>`: return read-only collection, owner, mint-or-floor, offer, volume, price-change, related-collection information, and detected creator-token history; `/info` by itself opens the validated input prompt
 - `/pricealert <OpenSea URL or NFT contract>`: resolve the current floor and create a personal one-time upward or downward target; `/pricealert` by itself opens the collection prompt
 - `/pricealerts`: list active floor targets and cancel individual alerts
 - `/track <OpenSea URL>`: analyze and subscribe; `/track` by itself opens an OpenSea-link input prompt
@@ -444,6 +449,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Floor alerts use OpenSea's collection floor, not individual-token trait floors or marketplace listings outside OpenSea's reported aggregate. A threshold is evaluated once per `PRICE_ALERT_POLL_INTERVAL_MS`, so a brief price crossing entirely between polls may not be observed. Currency-symbol changes are not compared across unlike currencies.
 - Free-mint discovery and price-change detection cover public stages returned by OpenSea's official upcoming calendar while they remain in the 12-hour window. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded. Approximate USD values depend on OpenSea's current token quote and can move after the alert.
 - `/info` treats "minting soon" as a stage beginning within 12 hours. Its 24-hour price change is calculated from OpenSea's floor-price history; it is reported as unavailable when a complete 24-hour baseline does not exist. Owner attribution and related collections reflect OpenSea account data, not verified real-world identity.
+- Creator-token research is conservative: ERC-20 has no on-chain "memecoin" flag, so the bot only reports direct deployments by the verified NFT deployment initiator that expose standard ERC-20 metadata and have a DEX Screener market. Factory-created tokens, tokens without a detected DEX pair, unsupported DEX Screener chains, or deployments beyond an explorer's bounded history window may be omitted. At most the 250 newest created contracts per chain are probed to keep an interactive Telegram request bounded. When an explorer or probe boundary is reached, the Telegram result explicitly warns that older deployments may exist.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
 - Common recipient getter names are deterministic when present, but arbitrary custom withdrawal logic cannot be inferred generically.
 - One confirmation is the default. Increase `WATCHER_CONFIRMATIONS` for stronger reorg protection.
@@ -451,7 +457,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 61 tests across 17 files. It covers dashboard workflow descriptions and action grouping, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, target notification/expiration behavior, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 65 tests across 18 files. It covers dashboard workflow descriptions and action grouping, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, OpenSea floor retrieval, target notification/expiration behavior, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block balance reads, high-risk threshold/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test
@@ -481,7 +487,10 @@ Treat `TELEGRAM_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENSEA_API_KEY`, RPC 
 - [OpenSea: Get a single collection](https://docs.opensea.io/reference/get_collection)
 - [Project OpenSea: canonical Seaport deployments](https://github.com/ProjectOpenSea/seaport#deployments)
 - [Etherscan v2: Contract creator and creation transaction](https://docs.etherscan.io/api-reference/endpoint/getcontractcreation)
+- [Etherscan v2: Normal transactions by address](https://docs.etherscan.io/api-reference/endpoint/txlist)
 - [Blockscout v2: Address info](https://docs.blockscout.com/api-reference/get-address-info)
+- [Blockscout v2: Address transactions](https://docs.blockscout.com/api-reference/get-address-transactions)
+- [DEX Screener: Token-pair API](https://docs.dexscreener.com/api/reference)
 - [Robinhood Chain network configuration](https://docs.robinhood.com/chain/connecting/)
 - [Supabase database security](https://supabase.com/docs/guides/database/secure-data)
 - [Telegram Bot API: chat member statuses](https://core.telegram.org/bots/api#getchatmember)

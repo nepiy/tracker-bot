@@ -1,6 +1,14 @@
 import { InlineKeyboard, type Bot } from "grammy";
-import { formatUnits } from "viem";
+import { formatUnits, type Address } from "viem";
+import { getMonitoringChains, resolveChainIdentifier } from "../../blockchain/chains.js";
+import { createChainClient } from "../../blockchain/clients.js";
+import {
+  findCreatorMarketTokensOnChain,
+  type CreatorMarketToken,
+} from "../../blockchain/creatorTokens.js";
+import { resolveContractDeployment } from "../../blockchain/deployment.js";
 import { logger } from "../../config/logger.js";
+import { createExplorer } from "../../explorers/index.js";
 import {
   getCollectionInfo,
   type CollectionAmount,
@@ -21,6 +29,12 @@ export const INFO_PROMPT = [
   "Example:",
   "https://opensea.io/collection/fishbroker",
 ].join("\n");
+
+export interface CreatorTokenHistory {
+  deployerAddress: Address;
+  tokens: CreatorMarketToken[];
+  complete: boolean;
+}
 
 function titleCase(value: string): string {
   return value
@@ -143,6 +157,105 @@ export function formatCollectionInfo(info: CollectionInfo): string {
   ].join("\n");
 }
 
+function formatCompactUsd(value: number | null): string | null {
+  if (value === null) return null;
+  if (value > 0 && value < 0.000001) return "<$0.000001";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value < 0.01 ? 6 : 2,
+  }).format(value);
+}
+
+function formatTokenEntry(token: CreatorMarketToken, index: number): string {
+  const created = token.createdAt
+    ? new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" })
+      .format(token.createdAt)
+    : "Date unavailable";
+  const price = formatCompactUsd(token.priceUsd);
+  const marketCap = formatCompactUsd(token.marketCapUsd);
+  const liquidity = formatCompactUsd(token.liquidityUsd);
+  return [
+    `${index + 1}. ${token.name} (${token.symbol})`,
+    `Chain: ${token.chainName} • Created: ${created} GMT`,
+    `Contract: ${token.address}`,
+    ...(price ? [`Price: ${price}`] : []),
+    ...(marketCap ? [`Market cap/FDV: ${marketCap}`] : []),
+    ...(liquidity ? [`Liquidity: ${liquidity}`] : []),
+    `Explorer: ${token.explorerUrl}`,
+    `Market: ${token.marketUrl}`,
+  ].join("\n");
+}
+
+export function formatCreatorTokenHistory(history: CreatorTokenHistory): string[] {
+  if (!history.tokens.length) return [];
+  const header = [
+    "🪙 CREATOR MEMECOIN HISTORY",
+    "",
+    "Verified deployment initiator:",
+    history.deployerAddress,
+    "",
+    `${history.tokens.length} market-listed ERC-20 ${history.tokens.length === 1 ? "token" : "tokens"} detected across configured chains.`,
+    "On-chain standards cannot prove that a token is a memecoin, so this list only includes deployer-created ERC-20 tokens with a detected DEX market.",
+    ...(!history.complete ? ["⚠️ Explorer history limits were reached on at least one chain; additional older deployments may exist."] : []),
+  ].join("\n");
+  const chunks: string[] = [];
+  let current = header;
+  for (const [index, token] of history.tokens.entries()) {
+    const entry = formatTokenEntry(token, index);
+    const candidate = `${current}\n\n${entry}`;
+    if (candidate.length > 3_900 && current !== header) {
+      chunks.push(current);
+      current = `🪙 CREATOR MEMECOIN HISTORY (continued)\n\n${entry}`;
+    } else {
+      current = candidate;
+    }
+  }
+  chunks.push(current);
+  return chunks;
+}
+
+async function loadCreatorTokenHistory(
+  info: CollectionInfo,
+  dependencies: BotDependencies,
+): Promise<CreatorTokenHistory> {
+  const sourceChain = resolveChainIdentifier(info.chain, dependencies.env);
+  const sourceClient = createChainClient(sourceChain);
+  const sourceExplorer = createExplorer(sourceChain, dependencies.env);
+  const deployment = await resolveContractDeployment(
+    info.contractAddress as Address,
+    sourceExplorer,
+    sourceClient,
+  );
+  const results = await Promise.allSettled(getMonitoringChains(dependencies.env).map(async (chain) => {
+    const explorer = createExplorer(chain, dependencies.env);
+    const client = createChainClient(chain);
+    return await findCreatorMarketTokensOnChain(
+      deployment.deploymentInitiator,
+      chain,
+      explorer,
+      client,
+    );
+  }));
+  for (const result of results) {
+    if (result.status === "rejected") {
+      logger.warn({ err: result.reason, deployer: deployment.deploymentInitiator }, "creator token chain lookup failed");
+    }
+  }
+  const successful = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  if (!successful.length && results.some((result) => result.status === "rejected")) {
+    throw results.find((result) => result.status === "rejected")!.reason;
+  }
+  const tokens = successful
+    .flatMap((result) => result.tokens)
+    .sort((left, right) => (right.createdAt?.getTime() ?? 0) - (left.createdAt?.getTime() ?? 0));
+  return {
+    deployerAddress: deployment.deploymentInitiator,
+    tokens,
+    complete: successful.length === results.length && successful.every((result) => result.complete),
+  };
+}
+
 export async function requestCollectionInfoInput(ctx: BotContext): Promise<void> {
   await ctx.reply(INFO_PROMPT, {
     reply_markup: {
@@ -158,9 +271,13 @@ async function sendCollectionInfo(
   dependencies: BotDependencies,
   input: string,
 ): Promise<void> {
-  const progress = await ctx.reply("🔎 Reading OpenSea collection data…");
+  const progress = await ctx.reply("🔎 Reading collection and deployer history…");
   try {
     const info = await getCollectionInfo(input, dependencies.env.OPENSEA_API_KEY);
+    const creatorHistory = await loadCreatorTokenHistory(info, dependencies).catch((error) => {
+      logger.warn({ err: error, chain: info.chain, contract: info.contractAddress }, "creator token history lookup failed");
+      return null;
+    });
     const keyboard = new InlineKeyboard()
       .url("Open on OpenSea ↗", info.openSeaUrl)
       .row()
@@ -170,6 +287,11 @@ async function sendCollectionInfo(
       reply_markup: keyboard,
       link_preview_options: { is_disabled: true },
     });
+    for (const message of creatorHistory ? formatCreatorTokenHistory(creatorHistory) : []) {
+      await ctx.reply(message, { link_preview_options: { is_disabled: true } }).catch((error) => {
+        logger.warn({ err: error, chatId: ctx.chat?.id }, "creator token history delivery failed");
+      });
+    }
   } catch (error) {
     logger.error({ err: error, telegramId: ctx.from?.id, chatId: ctx.chat?.id }, "collection info request failed");
     await ctx.api.deleteMessage(ctx.chat!.id, progress.message_id).catch(() => undefined);

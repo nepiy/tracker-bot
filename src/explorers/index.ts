@@ -19,6 +19,19 @@ class FallbackExplorer implements ExplorerAdapter {
     }
     throw lastError ?? new ExternalServiceError("No explorer adapters are configured", "explorer", false);
   }
+
+  async getCreatedContracts(address: Parameters<NonNullable<ExplorerAdapter["getCreatedContracts"]>>[0]) {
+    let lastError: unknown;
+    for (const adapter of this.adapters) {
+      if (!adapter.getCreatedContracts) continue;
+      try {
+        return await adapter.getCreatedContracts(address);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new ExternalServiceError("No explorer history adapter is configured", "explorer", false);
+  }
 }
 
 const BLOCKSCOUT_FALLBACKS: Partial<Record<number, string>> = {
