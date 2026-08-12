@@ -431,6 +431,8 @@ Create two Railway services from the same repository and give both the same envi
 1. **Bot service**: set its Railway **Custom Start Command** to `npm run start:bot`.
 2. **Watcher service**: set its Railway **Custom Start Command** to `npm run start:watcher`.
 
+The package also exposes `npm start` as a bot-safe default so Nixpacks can always produce a valid build plan. The watcher still requires its service-specific `npm run start:watcher` override; otherwise it would start a second Telegram bot process.
+
 Nixpacks installs dependencies once with `npm ci --include=dev`, then Railway runs `npm run build`. Keeping installation and compilation in separate phases avoids rebuilding against Railway's mounted `node_modules` cache. The explicit dev-dependency inclusion keeps TypeScript available while `NODE_ENV=production` is set. Neither service needs an HTTP port or public domain. Configure restart-on-failure for both, and deploy exactly one watcher replica.
 
 Do not set a dashboard **Custom Build Command** containing `npm ci`; leave it empty so `railway.toml` supplies `npm run build`. Start commands are intentionally absent from the repository configuration because Railway's config-as-code overrides dashboard settings and both services use the same repository. Set the two service-specific **Custom Start Command** values in the dashboard as described above.
