@@ -4,25 +4,39 @@ import type { BotContext } from "./context.js";
 export const MAIN_MENU_TEXT = [
   "🛰 NFT Dev Wallet Tracker",
   "",
-  "Research an NFT collection, track its team wallet, or monitor any wallet for marketplace buys and sells.",
+  "Research collections, watch team wallets, monitor NFT trades, and receive market alerts from one dashboard.",
   "",
-  "Choose an option below:",
+  "What you can do:",
+  "🔎 Research NFT — view its owner, contract, mint status, floor, offers, volume, and related collections.",
+  "🎯 Floor alerts — get one notification when a collection floor reaches your chosen target.",
+  "📡 Collection tracking — monitor the inferred dev/team wallet for sends, swaps, bridges, and high-risk moves.",
+  "👛 Wallet tracking — follow NFT marketplace buys and sells for any EVM wallet.",
+  "",
+  "Networks: Ethereum • Base • Robinhood Chain",
+  "",
+  "Choose an action:",
 ].join("\n");
 
 export const HELP_TEXT = [
-  "❓ How it works",
+  "❓ NFT Dev Wallet Tracker Guide",
   "",
-  "1. Add an OpenSea collection link.",
-  "2. The bot verifies its contract and analyzes on-chain wallet signals.",
-  "3. The watcher alerts you about outgoing activity from the selected wallet.",
-  "4. High-risk alerts are raised for >90% native-balance sends, bridges, and configured CEX destinations.",
+  "🔎 Research an NFT",
+  "Send an OpenSea link or supported NFT contract to see collection ownership, mint status, floor price, top offer, 24-hour metrics, and other collections attributed to the same owner.",
   "",
-  "Direct wallet tracking:",
-  "1. Choose Track wallet and send an EVM address.",
-  "2. Select Ethereum, Base, Robinhood, or all networks.",
-  "3. Receive buy/sell alerts for recognized NFT marketplace settlements.",
+  "🎯 Create a floor alert",
+  "Choose a target above or below the current floor. The bot notifies you once when the floor reaches it, then expires the alert automatically.",
   "",
-  "You can also paste an OpenSea collection URL directly at any time.",
+  "📡 Track a collection",
+  "The bot verifies the contract, analyzes on-chain signals to infer a likely dev/team wallet, and alerts on sends, swaps, bridges, contract activity, and configured high-risk movements.",
+  "",
+  "👛 Track a wallet",
+  "Monitor NFT marketplace buys and sells for any EVM wallet on Ethereum, Base, Robinhood Chain, or all supported networks.",
+  "",
+  "👥 Use it in a group",
+  "Group admins can add or remove collection tracking. Alerts are then delivered directly to the group.",
+  "",
+  "⚠️ Important",
+  "Wallet ownership is inferred from on-chain evidence and is not a verified real-world identity. Floor prices and marketplace data come from OpenSea.",
   "",
   "Commands:",
   "/info <OpenSea URL or contract> — research a collection",
@@ -38,28 +52,26 @@ export const HELP_TEXT = [
   "/grouplist — manage this group's collection alerts (admins only)",
   "/settings — customize personal notification preferences",
   "/help — show this information",
-  "",
-  "Wallet ownership is inferred from on-chain evidence and is not a verified real-world identity.",
 ].join("\n");
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🔎 Collection info", "menu:info")
-    .text("🎯 Price alerts", "menu:price-alerts")
+    .text("🔎 Research NFT", "menu:info")
+    .text("🎯 Floor Alerts", "menu:price-alerts")
     .row()
-    .text("➕ Add collection", "menu:track")
-    .text("📡 Collections", "menu:list")
+    .text("➕ Track Collection", "menu:track")
+    .text("📡 My Collections", "menu:list")
     .row()
-    .text("⚡ Activity", "menu:activity")
-    .text("🛑 Stop tracking", "menu:stop")
+    .text("👛 Track Wallet", "menu:wallet-track")
+    .text("🗂 My Wallets", "menu:wallets")
     .row()
-    .text("👛 Track wallet", "menu:wallet-track")
-    .text("👛 Wallets", "menu:wallets")
+    .text("⚡ Recent Activity", "menu:activity")
+    .text("⚙️ Alert Settings", "menu:settings")
     .row()
-    .text("⚙️ Settings", "menu:settings")
+    .text("🛑 Stop Collection", "menu:stop")
+    .text("❓ Guide", "menu:help")
     .row()
-    .text("❓ Help", "menu:help")
-    .text("🔄 Refresh", "menu:home");
+    .text("🔄 Refresh Dashboard", "menu:home");
 }
 
 export function homeKeyboard(): InlineKeyboard {

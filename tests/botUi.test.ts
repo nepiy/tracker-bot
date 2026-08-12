@@ -3,7 +3,7 @@ import type { SubscriptionView } from "../src/database/repositories/subscription
 import type { ActivityRow } from "../src/database/repositories/transactions.js";
 import { formatCollectionDetails, formatTrackedCollections } from "../src/bot/commands/list.js";
 import { activityMatchesFilter, formatActivityAction } from "../src/bot/commands/activity.js";
-import { chainLabel, explorerAddressUrl } from "../src/bot/ui.js";
+import { chainLabel, explorerAddressUrl, MAIN_MENU_TEXT, mainMenuKeyboard } from "../src/bot/ui.js";
 import { formatWalletSubscriptions } from "../src/bot/commands/wallet.js";
 import { formatGroupSubscriptions } from "../src/bot/commands/group.js";
 import { isAdminStatus } from "../src/bot/groupAdmin.js";
@@ -23,6 +23,23 @@ const subscription: SubscriptionView = {
 };
 
 describe("Telegram collection dashboard", () => {
+  it("explains and groups the dashboard's four primary workflows", () => {
+    expect(MAIN_MENU_TEXT).toContain("🔎 Research NFT");
+    expect(MAIN_MENU_TEXT).toContain("🎯 Floor alerts");
+    expect(MAIN_MENU_TEXT).toContain("📡 Collection tracking");
+    expect(MAIN_MENU_TEXT).toContain("👛 Wallet tracking");
+    expect(MAIN_MENU_TEXT).toContain("Ethereum • Base • Robinhood Chain");
+
+    expect(mainMenuKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
+      ["🔎 Research NFT", "🎯 Floor Alerts"],
+      ["➕ Track Collection", "📡 My Collections"],
+      ["👛 Track Wallet", "🗂 My Wallets"],
+      ["⚡ Recent Activity", "⚙️ Alert Settings"],
+      ["🛑 Stop Collection", "❓ Guide"],
+      ["🔄 Refresh Dashboard"],
+    ]);
+  });
+
   it("guides an empty list toward OpenSea link input", () => {
     expect(formatTrackedCollections([])).toContain("Add collection");
     expect(formatTrackedCollections([])).toContain("OpenSea collection link");
