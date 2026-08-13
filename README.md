@@ -39,6 +39,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
+- Live-priority newest-block scanning so a historical backlog cannot delay current wallet alerts
 - Durable Telegram notification outbox with stale-claim recovery and exponential delivery retries
 - Per-user rate limiting and structured error logging
 - GitHub Actions validation on pushes to `main` and pull requests
@@ -95,7 +96,9 @@ Telegram bot process
 
 Watcher process (one runner per chain)
   └─ deduplicated active collection + direct wallet subscriptions
-      └─ restart-safe block cursor
+      ├─ live-priority newest-block window (independent in-memory cursor)
+      │   └─ current activity first + database deduplication
+      └─ restart-safe historical block cursor
           ├─ outgoing collection-wallet transaction filter
           │   └─ activity decoder + notification fan-out
           ├─ NFT mint + canonical Seaport settlement filters
@@ -121,6 +124,7 @@ NFT floor-price watcher (same watcher process)
 
 Telegram delivery worker (same watcher process)
   └─ durable Supabase outbox
+      ├─ one-second pending-message polling
       ├─ atomic delivery claims + stale-claim recovery
       ├─ Telegram API confirmation
       └─ exponential retry after timeout, rate limit, or temporary failure
@@ -278,9 +282,10 @@ Optional:
 | `WATCHER_SCAN_BATCH_SIZE` | `250` | Maximum blocks per watcher scan batch; active direct-wallet NFT tracking automatically checkpoints every provider-compatible 10-block range |
 | `WATCHER_BLOCK_FETCH_CONCURRENCY` | `16` | Maximum concurrent block requests while scanning dev-wallet transactions |
 | `WATCHER_CONFIRMATIONS` | `1` | Head blocks held back to reduce reorg risk |
+| `WATCHER_LIVE_POLL_INTERVAL_MS` | `2000` | Delay between successful live-priority newest-block scans; minimum 1 second |
+| `WATCHER_LIVE_LOOKBACK_BLOCKS` | `100` | Maximum newest-block window scanned independently from the historical cursor |
 | `FREE_MINT_POLL_INTERVAL_MS` | `600000` | Opt-in OpenSea upcoming-drop scan interval; minimum 60 seconds |
 | `PRICE_ALERT_POLL_INTERVAL_MS` | `60000` | Active NFT floor-target scan interval; minimum 30 seconds |
-| `TELEGRAM_OUTBOX_POLL_INTERVAL_MS` | `5000` | Durable Telegram delivery queue interval; minimum 1 second |
 | `TELEGRAM_RATE_LIMIT_PER_MINUTE` | `8` | Per-user request limit per process |
 | `LOG_LEVEL` | `info` | Pino structured-log level |
 
@@ -395,7 +400,7 @@ Alerts include the collection, chain, inferred wallet, action, destination/route
 
 Direct wallet subscriptions use a separate NFT-activity path. The watcher detects ERC-721 and ERC-1155 transfers from the zero address into a tracked wallet as `nft_mint`, including mints outside marketplace settlement contracts. For each confirmed canonical Seaport settlement, it decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt; ordinary incoming transfers are recorded as `nft_buy` and outgoing transfers as `nft_sell`. Mint, buy, and sell alerts include the wallet, network, OpenSea NFT name and item link, counterparty when applicable, transaction hash, and explorer link. If OpenSea metadata is temporarily unavailable, the alert still sends with a deterministic `NFT #<token ID>` label and constructed item link.
 
-The watcher scans blocks in bounded concurrent batches and requests mint and Seaport settlement logs in 10-block ranges compatible with free-tier RPC limits. While direct-wallet NFT tracking is active, it also persists the chain cursor after every 10-block range and retries transient log/receipt failures with bounded exponential backoff. A single RPC error therefore replays only the current small range instead of restarting a large batch and starving alerts on fast chains. If a persisted chain cursor falls farther behind than `WATCHER_MAX_BACKLOG_BLOCKS`—for example after a deployment has been offline while a high-throughput chain continues producing blocks—it fast-forwards to the recent bootstrap window and resumes real-time monitoring. This intentionally favors current alerts over replaying an unbounded historical backlog; transaction and notification uniqueness constraints still prevent duplicates across restarts.
+The watcher runs two complementary chain paths. The live-priority path checks the newest confirmed window every two seconds with an independent in-memory cursor, so current activity is processed even when historical synchronization is behind. The durable path continues from the persisted Supabase cursor to backfill older blocks. Both paths use the same transaction/log uniqueness claims, so overlapping scans cannot send the same alert twice. Mint and Seaport settlement logs are requested in 10-block ranges compatible with free-tier RPC limits; settlement receipts are fetched with bounded concurrency, and transient log/receipt failures use bounded exponential backoff. If the durable cursor falls farther behind than `WATCHER_MAX_BACKLOG_BLOCKS`, it fast-forwards to the recent bootstrap window while the live-priority path continues handling current alerts. The Telegram outbox checks pending messages every second and retains its normal retry behavior after delivery failures.
 
 Collection dev-wallet notifications are promoted to `🚨🚨 ALERT: HIGH-RISK DEV ACTIVITY 🚨🚨` when at least one rule matches:
 

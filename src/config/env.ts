@@ -29,9 +29,10 @@ const envSchema = z.object({
   WATCHER_SCAN_BATCH_SIZE: z.coerce.number().int().min(1).max(2_000).default(250),
   WATCHER_BLOCK_FETCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(16),
   WATCHER_CONFIRMATIONS: z.coerce.number().int().min(0).default(1),
+  WATCHER_LIVE_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).default(2_000),
+  WATCHER_LIVE_LOOKBACK_BLOCKS: z.coerce.number().int().min(10).max(2_000).default(100),
   FREE_MINT_POLL_INTERVAL_MS: z.coerce.number().int().min(60_000).default(600_000),
   PRICE_ALERT_POLL_INTERVAL_MS: z.coerce.number().int().min(30_000).default(60_000),
-  TELEGRAM_OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).default(5_000),
   TELEGRAM_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(8),
 });
 

@@ -39,12 +39,29 @@ const ERC1155_TRANSFER_BATCH_TOPIC = toEventSelector("TransferBatch(address,addr
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const MARKETPLACE_LOG_RANGE_BLOCKS = 10n;
 const MAX_WALLET_TOPICS_PER_QUERY = 100;
+const MAX_RECEIPT_CONCURRENCY = 8;
 
 interface ReceiptLog {
   address: Address;
   data: Hex;
   topics: readonly Hex[];
   logIndex: number | null;
+}
+
+async function mapWithConcurrency<T>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      await mapper(values[index]!);
+    }
+  });
+  await Promise.all(workers);
 }
 
 export interface NftTransfer {
@@ -247,7 +264,7 @@ export async function processMarketplaceRange(
     }
   }
 
-  for (const [hash, blockNumber] of settlements) {
+  await mapWithConcurrency([...settlements], MAX_RECEIPT_CONCURRENCY, async ([hash, blockNumber]) => {
     const receipt = await withRetry(() => client.getTransactionReceipt({ hash }), {
       attempts: 4,
       initialDelayMs: 500,
@@ -257,7 +274,7 @@ export async function processMarketplaceRange(
         "retrying marketplace receipt query",
       ),
     });
-    if (receipt.status !== "success") continue;
+    if (receipt.status !== "success") return;
     const timestamp = await timestampForBlock(blockNumber);
     const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]);
     for (const transfer of transfers) {
@@ -275,7 +292,7 @@ export async function processMarketplaceRange(
         }
       }
     }
-  }
+  });
 }
 
 async function recordWalletNftActivity(

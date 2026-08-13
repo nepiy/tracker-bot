@@ -4,6 +4,7 @@ import { getMonitoringChains } from "../blockchain/chains.js";
 import type { AppEnv } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import type { Repositories } from "../database/repositories/index.js";
+import type { MarketplaceWatchedWallet } from "../database/repositories/walletSubscriptions.js";
 import type { ChainConfig } from "../types/index.js";
 import type { WatchedWallet } from "../database/repositories/wallets.js";
 import { withRetry } from "../utils/retry.js";
@@ -63,6 +64,66 @@ function blockNumbers(fromBlock: bigint, toBlock: bigint): bigint[] {
   const numbers: bigint[] = [];
   for (let blockNumber = fromBlock; blockNumber <= toBlock; blockNumber += 1n) numbers.push(blockNumber);
   return numbers;
+}
+
+export async function processWatchedRange(
+  chainId: number,
+  fromBlock: bigint,
+  toBlock: bigint,
+  watched: WatchedWallet[],
+  marketplaceWatched: MarketplaceWatchedWallet[],
+  client: ChainClient,
+  repositories: Repositories,
+  notifications: NotificationService,
+  blockFetchConcurrency: number,
+): Promise<void> {
+  const timestamps = new Map<bigint, bigint>();
+
+  if (watched.length) {
+    const blocks = await mapWithConcurrency(
+      blockNumbers(fromBlock, toBlock),
+      blockFetchConcurrency,
+      (blockNumber) => withRetry(
+        () => client.getBlock({ blockNumber, includeTransactions: true }),
+        {
+          attempts: 4,
+          onRetry: (error, attempt) => logger.warn(
+            { err: error, attempt, chainId, blockNumber: blockNumber.toString() },
+            "retrying block fetch",
+          ),
+        },
+      ),
+    );
+    for (const block of blocks) {
+      timestamps.set(block.number!, block.timestamp);
+      await processBlock(
+        chainId,
+        block as unknown as ProcessableBlock,
+        watched,
+        repositories,
+        notifications,
+        client,
+      );
+    }
+  }
+
+  if (marketplaceWatched.length) {
+    await processMarketplaceRange(
+      chainId,
+      fromBlock,
+      toBlock,
+      marketplaceWatched,
+      client,
+      repositories,
+      notifications,
+      async (blockNumber) => {
+        const cached = timestamps.get(blockNumber);
+        if (cached !== undefined) return cached;
+        const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
+        return block.timestamp;
+      },
+    );
+  }
 }
 
 export async function expandCollectionWallets(
@@ -171,53 +232,17 @@ export class WalletWatcher {
         for (let fromBlock = lastProcessed + 1n; fromBlock <= safeHead; fromBlock += batchSize) {
           if (signal.aborted) return;
           const toBlock = minBlock(fromBlock + batchSize - 1n, safeHead);
-          const timestamps = new Map<bigint, bigint>();
-
-          if (watched.length) {
-            const blocks = await mapWithConcurrency(
-              blockNumbers(fromBlock, toBlock),
-              this.env.WATCHER_BLOCK_FETCH_CONCURRENCY,
-              (blockNumber) => withRetry(
-                () => client.getBlock({ blockNumber, includeTransactions: true }),
-                {
-                  attempts: 4,
-                  onRetry: (error, attempt) => logger.warn(
-                    { err: error, attempt, chainId: chain.chainId, blockNumber: blockNumber.toString() },
-                    "retrying block fetch",
-                  ),
-                },
-              ),
-            );
-            for (const block of blocks) {
-              timestamps.set(block.number!, block.timestamp);
-              await processBlock(
-                chain.chainId,
-                block as unknown as ProcessableBlock,
-                watched,
-                this.repositories,
-                this.notifications,
-                client,
-              );
-            }
-          }
-
-          if (marketplaceWatched.length) {
-            await processMarketplaceRange(
-              chain.chainId,
-              fromBlock,
-              toBlock,
-              marketplaceWatched,
-              client,
-              this.repositories,
-              this.notifications,
-              async (blockNumber) => {
-                const cached = timestamps.get(blockNumber);
-                if (cached !== undefined) return cached;
-                const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
-                return block.timestamp;
-              },
-            );
-          }
+          await processWatchedRange(
+            chain.chainId,
+            fromBlock,
+            toBlock,
+            watched,
+            marketplaceWatched,
+            client,
+            this.repositories,
+            this.notifications,
+            this.env.WATCHER_BLOCK_FETCH_CONCURRENCY,
+          );
 
           await this.repositories.transactions.setLastProcessedBlock(chain.chainId, toBlock);
         }

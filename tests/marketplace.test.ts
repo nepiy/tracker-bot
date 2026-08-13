@@ -187,6 +187,44 @@ describe("marketplace NFT activity", () => {
     ]);
   });
 
+  it("fetches independent Seaport receipts concurrently for live-scan throughput", async () => {
+    const secondHash = `0x${"5".repeat(64)}` as Hash;
+    let activeReceipts = 0;
+    let maxActiveReceipts = 0;
+    const client = {
+      getLogs: async (request: { address?: readonly Address[] }) => request.address
+        ? [
+            { transactionHash: hash, blockNumber: 100n },
+            { transactionHash: secondHash, blockNumber: 100n },
+          ]
+        : [],
+      getTransactionReceipt: async () => {
+        activeReceipts += 1;
+        maxActiveReceipts = Math.max(maxActiveReceipts, activeReceipts);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeReceipts -= 1;
+        return { status: "success", logs: [] };
+      },
+    } as unknown as ChainClient;
+
+    await processMarketplaceBlock(
+      1,
+      100n,
+      1_700_000_000n,
+      [{
+        id: "wallet-id",
+        chain_id: 1,
+        address: wallet,
+        recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+      }],
+      client,
+      {} as Repositories,
+      {} as NotificationService,
+    );
+
+    expect(maxActiveReceipts).toBe(2);
+  });
+
   it("stores a tracked-wallet mint once without mislabeling a Seaport mint as a buy", async () => {
     const claimed = new Set<string>();
     const claim = vi.fn(async (activity: { txHash: Hash; logIndex: number; itemIndex: number; type: string }) => {

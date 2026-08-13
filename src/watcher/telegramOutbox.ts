@@ -8,6 +8,7 @@ import { NotificationService } from "./notifications.js";
 const STALE_CLAIM_MS = 60 * 1_000;
 const DELIVERED_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_RETRY_DELAY_MS = 60 * 60 * 1_000;
+export const TELEGRAM_OUTBOX_POLL_INTERVAL_MS = 1_000;
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -94,14 +95,14 @@ export class TelegramOutboxWatcher {
   async run(signal: AbortSignal): Promise<void> {
     let failureDelayMs = 5_000;
     logger.info(
-      { pollIntervalMs: this.env.TELEGRAM_OUTBOX_POLL_INTERVAL_MS },
+      { pollIntervalMs: TELEGRAM_OUTBOX_POLL_INTERVAL_MS },
       "Telegram notification outbox starting",
     );
     while (!signal.aborted) {
       try {
         await this.pollOnce();
         failureDelayMs = 5_000;
-        await delay(this.env.TELEGRAM_OUTBOX_POLL_INTERVAL_MS, signal);
+        await delay(TELEGRAM_OUTBOX_POLL_INTERVAL_MS, signal);
       } catch (error) {
         logger.error({ err: error, retryInMs: failureDelayMs }, "Telegram notification outbox loop failed");
         await delay(failureDelayMs, signal);

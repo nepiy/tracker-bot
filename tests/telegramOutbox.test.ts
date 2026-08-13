@@ -4,7 +4,11 @@ import type { AppEnv } from "../src/config/env.js";
 import type { Repositories } from "../src/database/repositories/index.js";
 import type { TelegramOutboxItem } from "../src/database/repositories/telegramOutbox.js";
 import { formatMarketplaceAlert, NotificationService } from "../src/watcher/notifications.js";
-import { TelegramOutboxWatcher, telegramRetryDelayMs } from "../src/watcher/telegramOutbox.js";
+import {
+  TELEGRAM_OUTBOX_POLL_INTERVAL_MS,
+  TelegramOutboxWatcher,
+  telegramRetryDelayMs,
+} from "../src/watcher/telegramOutbox.js";
 
 const env = {
   TELEGRAM_BOT_TOKEN: "test-token",
@@ -14,7 +18,6 @@ const env = {
   OPENSEA_API_KEY: "test-key",
   MONITORING_CHAINS_JSON: "[]",
   CEX_ADDRESSES_JSON: "[]",
-  TELEGRAM_OUTBOX_POLL_INTERVAL_MS: 5_000,
 } as unknown as AppEnv;
 
 const item: TelegramOutboxItem = {
@@ -41,6 +44,10 @@ function createOutboxHarness(sendText: () => Promise<void>) {
 }
 
 describe("durable Telegram notification outbox", () => {
+  it("checks for newly queued alerts every second", () => {
+    expect(TELEGRAM_OUTBOX_POLL_INTERVAL_MS).toBe(1_000);
+  });
+
   it("automatically delivers a queued alert and marks it delivered", async () => {
     const sendText = vi.fn(async () => undefined);
     const harness = createOutboxHarness(sendText);
