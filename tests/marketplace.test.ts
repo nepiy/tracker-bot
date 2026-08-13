@@ -11,7 +11,12 @@ import {
 import type { ChainClient } from "../src/blockchain/clients.js";
 import type { Repositories } from "../src/database/repositories/index.js";
 import type { MarketplaceWatchedWallet } from "../src/database/repositories/walletSubscriptions.js";
-import { decodeNftTransfers, processMarketplaceBlock, SEAPORT_ADDRESSES } from "../src/watcher/marketplace.js";
+import {
+  decodeNftTransfers,
+  processMarketplaceBlock,
+  processMarketplaceRange,
+  SEAPORT_ADDRESSES,
+} from "../src/watcher/marketplace.js";
 import type { NotificationService } from "../src/watcher/notifications.js";
 
 const wallet = "0x0000000000000000000000000000000000000001" as Address;
@@ -145,5 +150,32 @@ describe("marketplace NFT activity", () => {
 
     expect(release).toHaveBeenCalledTimes(1);
     expect(release.mock.calls[0]![0]).toMatchObject({ type: "nft_buy", txHash: hash });
+  });
+
+  it("splits marketplace log scans into provider-compatible ten-block ranges", async () => {
+    const getLogs = vi.fn(async () => []);
+    const client = { getLogs } as unknown as ChainClient;
+
+    await processMarketplaceRange(
+      4663,
+      100n,
+      124n,
+      [{
+        id: "wallet-id",
+        chain_id: 4663,
+        address: wallet,
+        recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+      }],
+      client,
+      {} as Repositories,
+      {} as NotificationService,
+      async () => 1_700_000_000n,
+    );
+
+    expect(getLogs.mock.calls.map(([request]) => [request.fromBlock, request.toBlock])).toEqual([
+      [100n, 109n],
+      [110n, 119n],
+      [120n, 124n],
+    ]);
   });
 });

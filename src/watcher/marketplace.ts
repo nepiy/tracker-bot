@@ -27,6 +27,7 @@ const ERC721_TRANSFER_TOPIC = toEventSelector("Transfer(address,address,uint256)
 const ERC1155_TRANSFER_SINGLE_TOPIC = toEventSelector("TransferSingle(address,address,address,uint256,uint256)");
 const ERC1155_TRANSFER_BATCH_TOPIC = toEventSelector("TransferBatch(address,address,address,uint256[],uint256[])");
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const MAX_LOG_RANGE_BLOCKS = 10n;
 
 interface ReceiptLog {
   address: Address;
@@ -112,19 +113,51 @@ export async function processMarketplaceBlock(
   repositories: Repositories,
   notifications: NotificationService,
 ): Promise<void> {
+  await processMarketplaceRange(
+    chainId,
+    blockNumber,
+    blockNumber,
+    watchedWallets,
+    client,
+    repositories,
+    notifications,
+    async () => timestamp,
+  );
+}
+
+export async function processMarketplaceRange(
+  chainId: number,
+  fromBlock: bigint,
+  toBlock: bigint,
+  watchedWallets: MarketplaceWatchedWallet[],
+  client: ChainClient,
+  repositories: Repositories,
+  notifications: NotificationService,
+  getBlockTimestamp: (blockNumber: bigint) => Promise<bigint>,
+): Promise<void> {
   if (watchedWallets.length === 0) return;
   const watchedByAddress = new Map(watchedWallets.map((wallet) => [wallet.address.toLowerCase(), wallet]));
-  const settlementLogs = await client.getLogs({
-    address: [...SEAPORT_ADDRESSES],
-    event: SEAPORT_ORDER_FULFILLED_EVENT,
-    fromBlock: blockNumber,
-    toBlock: blockNumber,
-  });
-  const hashes = [...new Set(settlementLogs.flatMap((log) => log.transactionHash ? [log.transactionHash] : []))];
+  const settlements = new Map<Hash, bigint>();
+  for (let rangeStart = fromBlock; rangeStart <= toBlock; rangeStart += MAX_LOG_RANGE_BLOCKS) {
+    const rangeEnd = rangeStart + MAX_LOG_RANGE_BLOCKS - 1n < toBlock
+      ? rangeStart + MAX_LOG_RANGE_BLOCKS - 1n
+      : toBlock;
+    const settlementLogs = await client.getLogs({
+      address: [...SEAPORT_ADDRESSES],
+      event: SEAPORT_ORDER_FULFILLED_EVENT,
+      fromBlock: rangeStart,
+      toBlock: rangeEnd,
+    });
+    for (const log of settlementLogs) {
+      if (!log.transactionHash) continue;
+      settlements.set(log.transactionHash, log.blockNumber ?? rangeStart);
+    }
+  }
 
-  for (const hash of hashes) {
+  for (const [hash, blockNumber] of settlements) {
     const receipt = await client.getTransactionReceipt({ hash });
     if (receipt.status !== "success") continue;
+    const timestamp = await getBlockTimestamp(blockNumber);
     const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]);
     for (const transfer of transfers) {
       if (transfer.from.toLowerCase() === transfer.to.toLowerCase()) continue;
