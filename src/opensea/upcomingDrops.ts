@@ -19,6 +19,8 @@ interface OpenSeaDropSummaryResponse {
   collection_name?: string;
   chain?: string;
   opensea_url?: string;
+  is_minting?: boolean;
+  active_stage?: OpenSeaDropStageResponse | null;
   next_stage?: OpenSeaDropStageResponse | null;
 }
 
@@ -46,6 +48,7 @@ export interface UpcomingMintStage {
 }
 
 export type UpcomingFreeMint = UpcomingMintStage;
+export type FreeMintDirectoryView = "upcoming" | "live";
 
 interface OpenSeaTokenResponse {
   symbol?: string;
@@ -101,6 +104,81 @@ function isPublicMintStage(stage: OpenSeaDropStageResponse): boolean {
     && /^0x[0-9a-fA-F]{40}$/.test(stage.price_currency_address);
 }
 
+function stageToMint(
+  summary: OpenSeaDropSummaryResponse,
+  stage: OpenSeaDropStageResponse,
+): UpcomingMintStage | null {
+  const slug = summary.collection_slug;
+  const startsAt = parseDate(stage.start_time);
+  if (!slug || !stage.uuid || !startsAt || !isPublicMintStage(stage)) return null;
+  return {
+    slug,
+    name: summary.collection_name ?? slug,
+    chain: summary.chain ?? "unknown",
+    openSeaUrl: summary.opensea_url ?? `https://opensea.io/collection/${slug}`,
+    stageId: stage.uuid,
+    stageType: stage.stage_type ?? "unknown",
+    stageLabel: stage.label?.trim() || "Mint stage",
+    price: stage.price!,
+    currencyAddress: stage.price_currency_address!.toLowerCase(),
+    startsAt,
+    endsAt: parseDate(stage.end_time),
+  };
+}
+
+async function fetchDropCalendar(
+  apiKey: string,
+  type: "featured" | "upcoming" | "recently_minted",
+  fetcher: typeof fetch,
+): Promise<OpenSeaDropSummaryResponse[]> {
+  const results: OpenSeaDropSummaryResponse[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_DROP_PAGES; page += 1) {
+    const query = new URLSearchParams({ type, limit: String(DROP_PAGE_SIZE) });
+    if (cursor) query.set("cursor", cursor);
+    const response = await fetchOpenSeaJson<OpenSeaDropsResponse>(`/drops?${query}`, apiKey, fetcher);
+    results.push(...(Array.isArray(response.drops) ? response.drops : []));
+    cursor = typeof response.next === "string" && response.next ? response.next : null;
+    // OpenSea can return fewer than the requested limit after post-fetch filtering,
+    // so only the cursor—not the page length—can prove pagination is complete.
+    if (!cursor) break;
+  }
+  return results;
+}
+
+/**
+ * Reads a fresh snapshot of public, zero-price stages from OpenSea's drop calendar.
+ * Upcoming uses the calendar's next stage; live combines all calendar categories and
+ * requires OpenSea to report that the stage is currently minting.
+ */
+export async function findFreeMintDirectory(
+  apiKey: string,
+  view: FreeMintDirectoryView,
+  now = new Date(),
+  fetcher: typeof fetch = fetch,
+): Promise<UpcomingFreeMint[]> {
+  const calendarTypes = view === "upcoming"
+    ? (["upcoming"] as const)
+    : (["featured", "upcoming", "recently_minted"] as const);
+  const pages = await Promise.all(calendarTypes.map((type) => fetchDropCalendar(apiKey, type, fetcher)));
+  const unique = new Map<string, UpcomingFreeMint>();
+
+  for (const summary of pages.flat()) {
+    const stage = view === "upcoming" ? summary.next_stage : summary.active_stage;
+    const mint = stage ? stageToMint(summary, stage) : null;
+    if (!mint || !isFreeMintPrice(mint.price)) continue;
+    const isUpcoming = mint.startsAt > now;
+    const isLive = summary.is_minting === true
+      && mint.startsAt <= now
+      && (!mint.endsAt || mint.endsAt > now);
+    if ((view === "upcoming" && isUpcoming) || (view === "live" && isLive)) {
+      unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+    }
+  }
+
+  return [...unique.values()].sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+}
+
 export function isFreeMintPrice(price: string): boolean {
   return /^0+$/.test(price);
 }
@@ -125,26 +203,11 @@ export async function findUpcomingMintStages(
 ): Promise<UpcomingMintStage[]> {
   const cutoff = new Date(now.getTime() + windowHours * 60 * 60 * 1_000);
   const candidates = new Map<string, OpenSeaDropSummaryResponse>();
-  let cursor: string | null = null;
-
-  for (let page = 0; page < MAX_DROP_PAGES; page += 1) {
-    const query = new URLSearchParams({ type: "upcoming", limit: String(DROP_PAGE_SIZE) });
-    if (cursor) query.set("cursor", cursor);
-    const response = await fetchOpenSeaJson<OpenSeaDropsResponse>(`/drops?${query}`, apiKey, fetcher);
-    const drops = Array.isArray(response.drops) ? response.drops : [];
-
-    for (const drop of drops) {
-      if (drop.collection_slug && startsWithin(drop.next_stage, now, cutoff)) {
-        candidates.set(drop.collection_slug, drop);
-      }
+  const drops = await fetchDropCalendar(apiKey, "upcoming", fetcher);
+  for (const drop of drops) {
+    if (drop.collection_slug && startsWithin(drop.next_stage, now, cutoff)) {
+      candidates.set(drop.collection_slug, drop);
     }
-
-    cursor = typeof response.next === "string" && response.next ? response.next : null;
-    if (!cursor || drops.length < DROP_PAGE_SIZE) break;
-    if (drops.length && drops.every((drop) => {
-      const start = parseDate(drop.next_stage?.start_time);
-      return start !== null && start > cutoff;
-    })) break;
   }
 
   const details = await inChunks([...candidates.entries()], 5, async ([slug, summary]) => {

@@ -13,12 +13,14 @@ import { registerSettingsCommand } from "./commands/settings.js";
 import { registerInfoCommand } from "./commands/info.js";
 import { registerNftPriceAlertCommands } from "./commands/priceAlerts.js";
 import { registerActiveTrackingCommand } from "./commands/activeTracking.js";
+import { registerFreeMintCommands } from "./commands/freeMints.js";
 
 export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext> {
   const bot = new Bot<BotContext>(dependencies.env.TELEGRAM_BOT_TOKEN);
   bot.use(rateLimit(dependencies.env.TELEGRAM_RATE_LIMIT_PER_MINUTE));
   registerStartCommands(bot);
   registerActiveTrackingCommand(bot, dependencies);
+  registerFreeMintCommands(bot, dependencies);
   registerNftPriceAlertCommands(bot, dependencies);
   registerInfoCommand(bot, dependencies);
   registerTrackCommand(bot, dependencies);

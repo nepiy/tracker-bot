@@ -20,6 +20,8 @@ function settingsKeyboard(enabled: boolean): InlineKeyboard {
   return new InlineKeyboard()
     .text(enabled ? "🔕 Turn free mint alerts off" : "🔔 Turn free mint alerts on", "settings:free-mints:toggle")
     .row()
+    .text("🆓 Browse free mints", "menu:free-mints")
+    .row()
     .text("🔄 Refresh", "menu:settings")
     .text("🏠 Main menu", "menu:home");
 }

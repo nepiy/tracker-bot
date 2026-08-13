@@ -15,6 +15,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 ## Current features
 
 - Interactive Telegram dashboard with inline navigation and a front-page **Add to Group** action
+- Fresh OpenSea free-mint browser with separate paginated **Upcoming** and **Live now** views
 - Personal **Active Tracking** overview combining collections, wallets, floor targets, and free-mint status
 - Read-only collection research from an OpenSea URL or Ethereum/Base/Robinhood NFT contract
 - Collection owner, live mint-or-floor details with approximate USD conversion, top offer, 24-hour volume, and floor-price change reporting
@@ -66,6 +67,8 @@ The bot can also be added to a Telegram group. Tap **Add to Group** at the top o
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
 
 Free-mint discovery is optional and disabled for every user by default. Open **Settings** or run `/settings` to enable it for your Telegram account. The watcher reads OpenSea's official upcoming-drops calendar, checks the detailed mint stages, and sends one notification when a public zero-price stage is scheduled to begin within 12 hours. It persists the observed stage price; if that same stage later changes from free to any positive amount, the bot sends a `MINT PRICE CHANGED` warning on the next polling cycle. The warning shows the token amount and an approximate USD value when OpenSea provides a usable quote. Start and end times are always displayed in GMT. Network gas can still apply. Allowlist, creator-reserve, and other gated zero-price stages are intentionally excluded because they are not generally mintable by every user.
+
+Users can also tap **Free Mints** or run `/freemints` without enabling automatic alerts. The browser provides separate **Upcoming** and **Live now** views, paginates qualifying stages returned by OpenSea's drop calendar, and performs a fresh API check on every view, refresh, or page action. A mint newly listed after an earlier check therefore appears on the next check. Upcoming covers future public zero-price stages across OpenSea's upcoming calendar; Live now combines OpenSea's featured, upcoming, and recently-minted calendars and requires OpenSea to report an active public zero-price stage. Each entry includes its collection, chain, stage, GMT schedule, and direct OpenSea link.
 
 For direct wallet tracking, tap **Add Wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
@@ -167,6 +170,7 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    grouptrack - Track a collection in this group (admins only)
    grouplist - List or stop this group's collection alerts (admins only)
    settings - Customize personal notification preferences
+   freemints - Browse fresh upcoming and live OpenSea free mints
    ```
 
 Do not put the token in source control or Railway build logs.
@@ -355,6 +359,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/grouptrack <OpenSea URL>`: add a collection to the current Telegram group; group admins only
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
 - `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
+- `/freemints`: freshly browse paginated upcoming or currently-live public free mints from OpenSea
 - `/active`: show all personal collection, wallet, floor-target, and free-mint monitoring in one dashboard
 
 The dashboard keeps common actions in inline buttons: add the bot to a group, open **Active Tracking**, research a collection, create or manage floor targets, add a collection or wallet, use **Tracking Collection** and **Tracking Wallet** to inspect active subscriptions, review activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
@@ -414,7 +419,7 @@ The free-mint watcher runs inside the watcher service and follows this flow:
 
 1. Load only users whose personal free-mint setting is enabled.
 2. Skip OpenSea polling entirely when no user has opted in.
-3. Read the official `upcoming` drops calendar and fetch detailed stages for drops entering the 12-hour window.
+3. Read the official `upcoming` drops calendar with complete cursor handling and fetch detailed stages for drops entering the 12-hour window.
 4. Persist every public stage's raw base-unit price and currency address.
 5. For a free stage, claim each `(user, stage, start time)` once before durably queueing the initial alert.
 6. Compare later observations with the stored price and persist an event for only an exact `0 → positive` transition.
@@ -423,6 +428,8 @@ The free-mint watcher runs inside the watcher service and follows this flow:
 9. Display start/end times in GMT.
 
 Use **Settings** or `/settings` to toggle both the initial free-mint and follow-up price-change alerts. Once either message is queued, Telegram delivery continues retrying even if the mint later starts and leaves the 12-hour discovery window. Interrupted discovery claims recover after one minute. A transition is announced only after the watcher previously observed that exact stage as free; a stage first discovered as paid does not produce a misleading change alert. OpenSea's calendar is the source of truth for discovery; a creator publishing a self-serve drop does not necessarily guarantee calendar inclusion, so the bot cannot alert for a drop absent from that API.
+
+The manual `/freemints` directory is independent of the alert preference. Its **Upcoming** and **Live now** buttons always run a new OpenSea calendar query, while **Refresh**, **Previous**, and **Next** refresh before rendering their page. This keeps the directory current without storing a stale local catalog. Automatic notifications remain intentionally narrower: they announce only future public free stages entering the next 12-hour window, once per user and stage.
 
 ## Railway deployment
 
@@ -461,12 +468,12 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Internal transfers emitted by a contract call are not fully decoded yet. Receipt/log decoding and protocol-specific swap/bridge registries are the next enrichment layer.
 - Direct wallet buy/sell detection currently covers canonical Seaport 1.5/1.6 settlements (including OpenSea and other Seaport-based marketplace flows). Blur, LooksRare-native, and other non-Seaport protocols require additional verified settlement adapters.
 - Marketplace alerts identify NFT direction but do not yet calculate aggregate sale price or fees.
-- The 90% rule currently measures native currency only; ERC-20 percentage-of-token-balance analysis is not yet included.
+- The 90% rule measures native currency and standard ERC-20 amounts emitted from the dev wallet during recognized swaps. Non-standard tokens that omit ordinary `Transfer` logs cannot be measured reliably.
 - Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.
 - CEX detection is only as complete as `CEX_ADDRESSES_JSON`; exchanges issue many account-specific deposit addresses and can rotate infrastructure.
 - Bridge detection uses the maintained selector registry. A new/custom bridge method must be added before it can be labeled automatically.
 - Floor alerts use OpenSea's collection stats API, not the rendered website, individual-token trait floors, or marketplace listings outside OpenSea's reported aggregate. A threshold is evaluated once per `PRICE_ALERT_POLL_INTERVAL_MS`, so a brief price crossing entirely between polls may not be observed. Currency-symbol changes are not compared across unlike currencies. USD figures are approximate snapshots calculated from OpenSea's current token quote; they can move with the market and gracefully disappear when a valid quote is unavailable.
-- Free-mint discovery and price-change detection cover public stages returned by OpenSea's official upcoming calendar while they remain in the 12-hour window. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded. Approximate USD values depend on OpenSea's current token quote and can move after the alert.
+- Automatic free-mint discovery and price-change detection cover public stages returned by OpenSea's official upcoming calendar while they remain in the 12-hour window. The manual directory can also show later upcoming stages and currently active stages surfaced across OpenSea's calendar categories. Zero price excludes gas; allowlist and creator-only stages are intentionally excluded. Approximate USD values depend on OpenSea's current token quote and can move after the alert.
 - `/info` treats "minting soon" as a stage beginning within 12 hours. Its 24-hour price change is calculated from OpenSea's floor-price history; it is reported as unavailable when a complete 24-hour baseline does not exist. Owner attribution and related collections reflect OpenSea account data, not verified real-world identity.
 - Creator-token research is conservative: ERC-20 has no on-chain "memecoin" flag, so the bot only reports direct deployments by the verified NFT deployment initiator that expose standard ERC-20 metadata and have a DEX Screener market. Factory-created tokens, tokens without a detected DEX pair, unsupported DEX Screener chains, or deployments beyond an explorer's bounded history window may be omitted. At most the 250 newest created contracts per chain are probed to keep an interactive Telegram request bounded. When an explorer or probe boundary is reached, the Telegram result explicitly warns that older deployments may exist.
 - ERC-2981 probing uses token ID `0`; contracts that reject that ID may hide an otherwise valid royalty receiver.
@@ -476,7 +483,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 77 tests across 19 files. It covers dashboard workflow descriptions and action grouping, consolidated active-tracking summaries and management paths, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, live floor-currency USD quote refresh and formatting, safe tiny-value and unavailable-quote fallback formatting, OpenSea floor retrieval, pending-delivery display, confirmed cancellation copy, successful notification queueing, failed-enqueue release behavior, durable Telegram delivery, retry backoff and stale-claim recovery, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block native and ERC-20 swap-balance reads, high-risk native-send/swap/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 80 tests across 19 files. It covers dashboard workflow descriptions and action grouping, fresh paginated upcoming/live free-mint views, short-page cursor continuation, consolidated active-tracking summaries and management paths, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, live floor-currency USD quote refresh and formatting, safe tiny-value and unavailable-quote fallback formatting, OpenSea floor retrieval, pending-delivery display, confirmed cancellation copy, successful notification queueing, failed-enqueue release behavior, durable Telegram delivery, retry backoff and stale-claim recovery, discovery versus monitoring chain mapping, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block native and ERC-20 swap-balance reads, high-risk native-send/swap/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test
@@ -503,6 +510,7 @@ Treat `TELEGRAM_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENSEA_API_KEY`, RPC 
 
 ## External API references
 
+- [OpenSea: Get drops](https://docs.opensea.io/reference/get_drops)
 - [OpenSea: Get a single collection](https://docs.opensea.io/reference/get_collection)
 - [Project OpenSea: canonical Seaport deployments](https://github.com/ProjectOpenSea/seaport#deployments)
 - [Etherscan v2: Contract creator and creation transaction](https://docs.etherscan.io/api-reference/endpoint/getcontractcreation)

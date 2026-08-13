@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  findFreeMintDirectory,
   findUpcomingFreeMints,
   findUpcomingMintStages,
   getOpenSeaTokenDetails,
@@ -125,5 +126,118 @@ describe("OpenSea upcoming free mints", () => {
       "0x0000000000000000000000000000000000000001",
       fetcher,
     )).resolves.toEqual({ symbol: "USDC", decimals: 6, usdPrice: "1.0" });
+  });
+
+  it("freshly separates upcoming and currently-live public free stages", async () => {
+    const now = new Date("2026-08-13T12:00:00Z");
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const type = url.searchParams.get("type");
+      if (type === "upcoming") {
+        return jsonResponse({
+          drops: [
+            {
+              collection_slug: "later-free",
+              collection_name: "Later Free",
+              chain: "robinhood",
+              opensea_url: "https://opensea.io/collection/later-free",
+              is_minting: false,
+              next_stage: {
+                uuid: "later-stage",
+                stage_type: "public_sale",
+                label: "Public mint",
+                price: "0",
+                price_currency_address: "0x0000000000000000000000000000000000000000",
+                start_time: "2026-08-14T18:00:00Z",
+                end_time: "2026-08-14T20:00:00Z",
+              },
+            },
+            {
+              collection_slug: "live-free",
+              collection_name: "Live Free",
+              chain: "base",
+              opensea_url: "https://opensea.io/collection/live-free",
+              is_minting: true,
+              active_stage: {
+                uuid: "live-stage",
+                stage_type: "public_sale",
+                label: "Live public mint",
+                price: "0",
+                price_currency_address: "0x0000000000000000000000000000000000000000",
+                start_time: "2026-08-13T11:00:00Z",
+                end_time: "2026-08-13T15:00:00Z",
+              },
+            },
+          ],
+          next: null,
+        });
+      }
+      if (type === "featured") return jsonResponse({ drops: [], next: null });
+      return jsonResponse({
+        drops: [{
+          collection_slug: "live-free",
+          collection_name: "Live Free",
+          chain: "base",
+          opensea_url: "https://opensea.io/collection/live-free",
+          is_minting: true,
+          active_stage: {
+            uuid: "live-stage",
+            stage_type: "public_sale",
+            label: "Live public mint",
+            price: "0",
+            price_currency_address: "0x0000000000000000000000000000000000000000",
+            start_time: "2026-08-13T11:00:00Z",
+            end_time: "2026-08-13T15:00:00Z",
+          },
+        }],
+        next: null,
+      });
+    });
+
+    const upcoming = await findFreeMintDirectory("test-key", "upcoming", now, fetcher);
+    const live = await findFreeMintDirectory("test-key", "live", now, fetcher);
+
+    expect(upcoming.map((mint) => mint.slug)).toEqual(["later-free"]);
+    expect(live.map((mint) => mint.slug)).toEqual(["live-free"]);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("continues calendar pagination when OpenSea returns a short page with a cursor", async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const cursor = url.searchParams.get("cursor");
+      if (!cursor) {
+        return jsonResponse({ drops: [], next: "second-page" });
+      }
+      return jsonResponse({
+        drops: [{
+          collection_slug: "newly-listed-free",
+          collection_name: "Newly Listed Free",
+          chain: "ethereum",
+          opensea_url: "https://opensea.io/collection/newly-listed-free",
+          is_minting: false,
+          next_stage: {
+            uuid: "new-stage",
+            stage_type: "public_sale",
+            label: "Public mint",
+            price: "0",
+            price_currency_address: "0x0000000000000000000000000000000000000000",
+            start_time: "2026-08-13T14:00:00Z",
+            end_time: null,
+          },
+        }],
+        next: null,
+      });
+    });
+
+    const mints = await findFreeMintDirectory(
+      "test-key",
+      "upcoming",
+      new Date("2026-08-13T12:00:00Z"),
+      fetcher,
+    );
+
+    expect(mints.map((mint) => mint.slug)).toEqual(["newly-listed-free"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

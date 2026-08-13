@@ -10,6 +10,12 @@ import { isAdminStatus } from "../src/bot/groupAdmin.js";
 import { formatSettings } from "../src/bot/commands/settings.js";
 import { formatFreeMintAlert, formatMintPriceChangeAlert } from "../src/watcher/notifications.js";
 import { activeTrackingKeyboard, formatActiveTracking } from "../src/bot/commands/activeTracking.js";
+import {
+  FREE_MINTS_MENU_TEXT,
+  formatFreeMintDirectory,
+  freeMintDirectoryKeyboard,
+  freeMintsMenuKeyboard,
+} from "../src/bot/commands/freeMints.js";
 
 const subscription: SubscriptionView = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -38,10 +44,46 @@ describe("Telegram collection dashboard", () => {
       ["🔎 Research NFT", "🎯 Floor Alerts"],
       ["➕ Add Collection", "📡 Tracking Collection"],
       ["👛 Add Wallet", "🗂 Tracking Wallet"],
-      ["⚡ Recent Activity", "⚙️ Alert Settings"],
-      ["🛑 Stop Collection", "❓ Guide"],
-      ["🔄 Refresh Dashboard"],
+      ["⚡ Recent Activity", "🆓 Free Mints"],
+      ["⚙️ Alert Settings", "🛑 Stop Collection"],
+      ["❓ Guide", "🔄 Refresh Dashboard"],
     ]);
+  });
+
+  it("offers fresh, separate upcoming and live free-mint views", () => {
+    const mints = Array.from({ length: 6 }, (_, index) => ({
+      slug: `free-${index + 1}`,
+      name: `Free Mint ${index + 1}`,
+      chain: index % 2 ? "base" : "robinhood",
+      openSeaUrl: `https://opensea.io/collection/free-${index + 1}`,
+      stageId: `stage-${index + 1}`,
+      stageType: "public_sale",
+      stageLabel: "Public mint",
+      price: "0",
+      currencyAddress: "0x0000000000000000000000000000000000000000",
+      startsAt: new Date(`2026-08-14T${String(10 + index).padStart(2, "0")}:00:00Z`),
+      endsAt: null,
+    }));
+    const now = new Date("2026-08-13T12:00:00Z");
+
+    expect(FREE_MINTS_MENU_TEXT).toContain("Every check fetches a new snapshot");
+    expect(freeMintsMenuKeyboard().inline_keyboard[0]?.map((button) => button.text)).toEqual([
+      "🕒 Upcoming",
+      "🟢 Live now",
+    ]);
+    const text = formatFreeMintDirectory("upcoming", mints, 0, now);
+    expect(text).toContain("UPCOMING FREE MINTS");
+    expect(text).toContain("Fresh OpenSea check:");
+    expect(text).toContain("Found: 6 public free mints");
+    expect(text).toContain("Page: 1/2");
+    expect(text).toContain("Free Mint 1");
+    expect(text).not.toContain("Free Mint 6");
+    expect(freeMintDirectoryKeyboard("upcoming", mints, 0).inline_keyboard.flat().some(
+      (button) => button.callback_data === "free-mints:upcoming:1",
+    )).toBe(true);
+    expect(formatFreeMintDirectory("live", [], 0, now)).toContain(
+      "not currently reporting a public free mint as live",
+    );
   });
 
   it("summarizes every personal monitor and groups wallet networks", () => {
