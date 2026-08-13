@@ -72,4 +72,35 @@ describe("live-priority watcher", () => {
       expect.objectContaining({ fromBlock: 105n, toBlock: 107n }),
     ]));
   });
+
+  it("replays the recent window when a wallet subscription is added between scans", async () => {
+    const heads = [105n, 108n];
+    const getLogs = vi.fn(async () => []);
+    const client = {
+      getBlockNumber: vi.fn(async () => heads.shift()!),
+      getLogs,
+    } as unknown as ChainClient;
+    const subscriptions = [
+      [],
+      [{
+        id: "wallet-id",
+        chain_id: 4663,
+        address: "0x0000000000000000000000000000000000000001" as Address,
+        recipients: [{ telegramId: 123, subscriptionId: "new-subscription-id" }],
+      }],
+    ];
+    const repositories = {
+      wallets: { listActiveWatched: vi.fn(async () => []) },
+      walletSubscriptions: {
+        listActiveWatched: vi.fn(async () => subscriptions.shift()!),
+      },
+      telegramOutbox: {},
+    } as unknown as Repositories;
+    const watcher = new LivePriorityWatcher(env, repositories);
+
+    await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 100n, toBlock: 104n });
+    await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 103n, toBlock: 107n });
+
+    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 103n, toBlock: 107n }));
+  });
 });

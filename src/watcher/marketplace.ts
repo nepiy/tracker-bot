@@ -36,6 +36,9 @@ export const SEAPORT_ADDRESSES = [
 const ERC721_TRANSFER_TOPIC = toEventSelector("Transfer(address,address,uint256)");
 const ERC1155_TRANSFER_SINGLE_TOPIC = toEventSelector("TransferSingle(address,address,address,uint256,uint256)");
 const ERC1155_TRANSFER_BATCH_TOPIC = toEventSelector("TransferBatch(address,address,address,uint256[],uint256[])");
+const SEAPORT_ORDER_FULFILLED_TOPIC = toEventSelector(
+  "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+);
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const MARKETPLACE_LOG_RANGE_BLOCKS = 10n;
 const MAX_WALLET_TOPICS_PER_QUERY = 100;
@@ -174,7 +177,7 @@ export async function processMarketplaceRange(
     timestamps.set(blockNumber, timestamp);
     return timestamp;
   };
-  const settlements = new Map<Hash, bigint>();
+  const marketplaceCandidates = new Map<Hash, bigint>();
   for (let rangeStart = fromBlock; rangeStart <= toBlock; rangeStart += MARKETPLACE_LOG_RANGE_BLOCKS) {
     const rangeEnd = rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n < toBlock
       ? rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n
@@ -195,33 +198,48 @@ export async function processMarketplaceRange(
         "retrying marketplace log query",
       ),
     });
-    const settlementLogsPromise = queryLogs(() => client.getLogs({
-      address: [...SEAPORT_ADDRESSES],
-      event: SEAPORT_ORDER_FULFILLED_EVENT,
-      fromBlock: rangeStart,
-      toBlock: rangeEnd,
-    }));
-    const mintLogPromises: Promise<unknown[]>[] = [];
+    const transferLogPromises: Promise<unknown[]>[] = [];
     for (let walletOffset = 0; walletOffset < watchedAddresses.length; walletOffset += MAX_WALLET_TOPICS_PER_QUERY) {
-      const recipients = watchedAddresses.slice(walletOffset, walletOffset + MAX_WALLET_TOPICS_PER_QUERY);
-      mintLogPromises.push(
+      const addresses = watchedAddresses.slice(walletOffset, walletOffset + MAX_WALLET_TOPICS_PER_QUERY);
+      transferLogPromises.push(
         queryLogs(() => client.getLogs({
           event: ERC721_TRANSFER_EVENT,
-          args: { from: ZERO_ADDRESS, to: recipients },
+          args: { to: addresses },
+          fromBlock: rangeStart,
+          toBlock: rangeEnd,
+          strict: true,
+        })),
+        queryLogs(() => client.getLogs({
+          event: ERC721_TRANSFER_EVENT,
+          args: { from: addresses },
           fromBlock: rangeStart,
           toBlock: rangeEnd,
           strict: true,
         })),
         queryLogs(() => client.getLogs({
           event: ERC1155_TRANSFER_SINGLE_EVENT,
-          args: { from: ZERO_ADDRESS, to: recipients },
+          args: { to: addresses },
+          fromBlock: rangeStart,
+          toBlock: rangeEnd,
+          strict: true,
+        })),
+        queryLogs(() => client.getLogs({
+          event: ERC1155_TRANSFER_SINGLE_EVENT,
+          args: { from: addresses },
           fromBlock: rangeStart,
           toBlock: rangeEnd,
           strict: true,
         })),
         queryLogs(() => client.getLogs({
           event: ERC1155_TRANSFER_BATCH_EVENT,
-          args: { from: ZERO_ADDRESS, to: recipients },
+          args: { to: addresses },
+          fromBlock: rangeStart,
+          toBlock: rangeEnd,
+          strict: true,
+        })),
+        queryLogs(() => client.getLogs({
+          event: ERC1155_TRANSFER_BATCH_EVENT,
+          args: { from: addresses },
           fromBlock: rangeStart,
           toBlock: rangeEnd,
           strict: true,
@@ -229,42 +247,41 @@ export async function processMarketplaceRange(
       );
     }
 
-    const [settlementLogs, ...mintLogGroups] = await Promise.all([
-      settlementLogsPromise,
-      ...mintLogPromises,
-    ]);
-    const mintLogs = mintLogGroups.flat();
+    const transferLogs = (await Promise.all(transferLogPromises)).flat();
 
-    for (const rawLog of mintLogs) {
+    for (const rawLog of transferLogs) {
       const log = rawLog as { transactionHash: Hash | null; blockNumber: bigint | null } & ReceiptLog;
       if (!log.transactionHash || log.blockNumber === null) continue;
       const transfers = decodeNftTransfers([log]);
       for (const transfer of transfers) {
-        if (transfer.from.toLowerCase() !== ZERO_ADDRESS) continue;
-        const wallet = watchedByAddress.get(transfer.to.toLowerCase());
-        if (!wallet) continue;
-        const timestamp = await timestampForBlock(log.blockNumber);
-        await recordWalletNftActivity(
-          "nft_mint",
-          wallet,
-          transfer,
-          chainId,
-          log.transactionHash,
-          log.blockNumber,
-          timestamp,
-          repositories,
-          notifications,
-        );
+        if (transfer.from.toLowerCase() === ZERO_ADDRESS) {
+          const wallet = watchedByAddress.get(transfer.to.toLowerCase());
+          if (!wallet) continue;
+          const timestamp = await timestampForBlock(log.blockNumber);
+          await recordWalletNftActivity(
+            "nft_mint",
+            wallet,
+            transfer,
+            chainId,
+            log.transactionHash,
+            log.blockNumber,
+            timestamp,
+            repositories,
+            notifications,
+          );
+          continue;
+        }
+        if (
+          watchedByAddress.has(transfer.from.toLowerCase())
+          || watchedByAddress.has(transfer.to.toLowerCase())
+        ) {
+          marketplaceCandidates.set(log.transactionHash, log.blockNumber);
+        }
       }
-    }
-
-    for (const log of settlementLogs) {
-      if (!log.transactionHash) continue;
-      settlements.set(log.transactionHash, log.blockNumber ?? rangeStart);
     }
   }
 
-  await mapWithConcurrency([...settlements], MAX_RECEIPT_CONCURRENCY, async ([hash, blockNumber]) => {
+  await mapWithConcurrency([...marketplaceCandidates], MAX_RECEIPT_CONCURRENCY, async ([hash, blockNumber]) => {
     const receipt = await withRetry(() => client.getTransactionReceipt({ hash }), {
       attempts: 4,
       initialDelayMs: 500,
@@ -275,6 +292,11 @@ export async function processMarketplaceRange(
       ),
     });
     if (receipt.status !== "success") return;
+    const isSeaportSettlement = receipt.logs.some((log) => (
+      SEAPORT_ADDRESSES.some((address) => address.toLowerCase() === log.address.toLowerCase())
+      && log.topics[0]?.toLowerCase() === SEAPORT_ORDER_FULFILLED_TOPIC.toLowerCase()
+    ));
+    if (!isSeaportSettlement) return;
     const timestamp = await timestampForBlock(blockNumber);
     const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]);
     for (const transfer of transfers) {

@@ -24,6 +24,17 @@ export interface LiveScanRange {
   toBlock: bigint;
 }
 
+export function marketplaceWatchFingerprint(
+  wallets: Awaited<ReturnType<Repositories["walletSubscriptions"]["listActiveWatched"]>>,
+): string {
+  return wallets
+    .flatMap((wallet) => wallet.recipients.map((recipient) => (
+      `${wallet.id}:${wallet.address.toLowerCase()}:${recipient.subscriptionId}:${recipient.telegramId}`
+    )))
+    .sort()
+    .join("|");
+}
+
 export function selectLiveScanRange(
   lastProcessed: bigint | null,
   safeHead: bigint,
@@ -45,6 +56,7 @@ export function selectLiveScanRange(
 export class LivePriorityWatcher {
   private readonly notifications: NotificationService;
   private readonly lastProcessed = new Map<number, bigint>();
+  private readonly marketplaceFingerprints = new Map<number, string>();
   private readonly expandedLinks = new Map<number, Set<string>>();
 
   constructor(
@@ -62,12 +74,18 @@ export class LivePriorityWatcher {
     ]);
     const confirmations = BigInt(this.env.WATCHER_CONFIRMATIONS);
     const safeHead = head > confirmations ? head - confirmations : 0n;
+    const fingerprint = marketplaceWatchFingerprint(marketplaceWatched);
+    const previousFingerprint = this.marketplaceFingerprints.get(chain.chainId);
+    const subscriptionsChanged = previousFingerprint !== undefined && previousFingerprint !== fingerprint;
     const range = selectLiveScanRange(
-      this.lastProcessed.get(chain.chainId) ?? null,
+      subscriptionsChanged ? null : this.lastProcessed.get(chain.chainId) ?? null,
       safeHead,
       BigInt(this.env.WATCHER_LIVE_LOOKBACK_BLOCKS),
     );
-    if (!range) return null;
+    if (!range) {
+      this.marketplaceFingerprints.set(chain.chainId, fingerprint);
+      return null;
+    }
 
     const links = this.expandedLinks.get(chain.chainId) ?? new Set<string>();
     this.expandedLinks.set(chain.chainId, links);
@@ -91,11 +109,13 @@ export class LivePriorityWatcher {
       );
     }
     this.lastProcessed.set(chain.chainId, range.toBlock);
+    this.marketplaceFingerprints.set(chain.chainId, fingerprint);
     logger.debug(
       {
         chainId: chain.chainId,
         fromBlock: range.fromBlock.toString(),
         toBlock: range.toBlock.toString(),
+        subscriptionsChanged,
       },
       "live-priority watcher range processed",
     );

@@ -24,9 +24,37 @@ const wallet = "0x0000000000000000000000000000000000000001" as Address;
 const seller = "0x0000000000000000000000000000000000000002" as Address;
 const collection = "0x0000000000000000000000000000000000000003" as Address;
 const hash = `0x${"4".repeat(64)}` as Hash;
+const orderFulfilledTopic = toEventSelector(
+  "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
+);
 
 function addressTopic(address: Address): Hex {
   return pad(address, { size: 32 });
+}
+
+function erc721TransferLog(transactionHash: Hash = hash, blockNumber = 100n) {
+  return {
+    address: collection,
+    data: "0x" as Hex,
+    topics: [
+      toEventSelector("Transfer(address,address,uint256)"),
+      addressTopic(seller),
+      addressTopic(wallet),
+      pad("0x2a", { size: 32 }),
+    ],
+    logIndex: 9,
+    transactionHash,
+    blockNumber,
+  };
+}
+
+function seaportSettlementLog() {
+  return {
+    address: SEAPORT_ADDRESSES[0],
+    data: "0x" as Hex,
+    topics: [orderFulfilledTopic],
+    logIndex: 8,
+  };
 }
 
 describe("marketplace NFT activity", () => {
@@ -69,24 +97,15 @@ describe("marketplace NFT activity", () => {
       return true;
     });
     const sendMarketplace = vi.fn(async () => undefined);
-    const getLogs = vi.fn(async (request: { address?: readonly Address[] }) => (
-      request.address ? [{ transactionHash: hash }] : []
+    const transferLog = erc721TransferLog();
+    const getLogs = vi.fn(async (request: { event?: { name: string }; args?: { to?: Address[] } }) => (
+      request.event === ERC721_TRANSFER_EVENT && request.args?.to ? [transferLog] : []
     ));
     const client = {
       getLogs,
       getTransactionReceipt: async () => ({
         status: "success",
-        logs: [{
-          address: collection,
-          data: "0x",
-          topics: [
-            toEventSelector("Transfer(address,address,uint256)"),
-            addressTopic(seller),
-            addressTopic(wallet),
-            pad("0x2a", { size: 32 }),
-          ],
-          logIndex: 9,
-        }],
+        logs: [seaportSettlementLog(), transferLog],
       }),
     } as unknown as ChainClient;
     const repositories = { marketplaceActivity: { claim } } as unknown as Repositories;
@@ -102,7 +121,10 @@ describe("marketplace NFT activity", () => {
     await processMarketplaceBlock(1, 100n, 1_700_000_000n, watched, client, repositories, notifications);
 
     expect(claim).toHaveBeenCalledTimes(2);
-    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ address: [...SEAPORT_ADDRESSES] }));
+    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({
+      event: ERC721_TRANSFER_EVENT,
+      args: { to: [wallet] },
+    }));
     expect(sendMarketplace).toHaveBeenCalledTimes(1);
     expect(sendMarketplace.mock.calls[0]![1]).toMatchObject({
       type: "nft_buy",
@@ -114,23 +136,14 @@ describe("marketplace NFT activity", () => {
 
   it("releases marketplace deduplication when notification enqueueing fails", async () => {
     const release = vi.fn(async () => undefined);
+    const transferLog = erc721TransferLog();
     const client = {
-      getLogs: async (request: { address?: readonly Address[] }) => (
-        request.address ? [{ transactionHash: hash }] : []
+      getLogs: async (request: { event?: { name: string }; args?: { to?: Address[] } }) => (
+        request.event === ERC721_TRANSFER_EVENT && request.args?.to ? [transferLog] : []
       ),
       getTransactionReceipt: async () => ({
         status: "success",
-        logs: [{
-          address: collection,
-          data: "0x",
-          topics: [
-            toEventSelector("Transfer(address,address,uint256)"),
-            addressTopic(seller),
-            addressTopic(wallet),
-            pad("0x2a", { size: 32 }),
-          ],
-          logIndex: 9,
-        }],
+        logs: [seaportSettlementLog(), transferLog],
       }),
     } as unknown as ChainClient;
     const repositories = {
@@ -177,14 +190,19 @@ describe("marketplace NFT activity", () => {
       async () => 1_700_000_000n,
     );
 
-    const seaportRequests = getLogs.mock.calls
-      .map(([request]) => request)
-      .filter((request) => request.address);
-    expect(seaportRequests.map((request) => [request.fromBlock, request.toBlock])).toEqual([
+    const ranges = [...new Set(getLogs.mock.calls.map(([request]) => (
+      `${request.fromBlock.toString()}:${request.toBlock.toString()}`
+    )))];
+    expect(ranges).toEqual([
+      "100:109",
+      "110:119",
+      "120:124",
+    ]);
+    expect(getLogs.mock.calls.map(([request]) => [request.fromBlock, request.toBlock])).toEqual(expect.arrayContaining([
       [100n, 109n],
       [110n, 119n],
       [120n, 124n],
-    ]);
+    ]));
   });
 
   it("fetches independent Seaport receipts concurrently for live-scan throughput", async () => {
@@ -192,18 +210,17 @@ describe("marketplace NFT activity", () => {
     let activeReceipts = 0;
     let maxActiveReceipts = 0;
     const client = {
-      getLogs: async (request: { address?: readonly Address[] }) => request.address
-        ? [
-            { transactionHash: hash, blockNumber: 100n },
-            { transactionHash: secondHash, blockNumber: 100n },
-          ]
-        : [],
+      getLogs: async (request: { event?: { name: string }; args?: { to?: Address[] } }) => (
+        request.event === ERC721_TRANSFER_EVENT && request.args?.to
+          ? [erc721TransferLog(hash), erc721TransferLog(secondHash)]
+          : []
+      ),
       getTransactionReceipt: async () => {
         activeReceipts += 1;
         maxActiveReceipts = Math.max(maxActiveReceipts, activeReceipts);
         await new Promise((resolve) => setTimeout(resolve, 5));
         activeReceipts -= 1;
-        return { status: "success", logs: [] };
+        return { status: "success", logs: [seaportSettlementLog()] };
       },
     } as unknown as ChainClient;
 
@@ -247,9 +264,8 @@ describe("marketplace NFT activity", () => {
       transactionHash: hash,
       blockNumber: 100n,
     };
-    const getLogs = vi.fn(async (request: { event?: { name: string }; address?: readonly Address[] }) => {
-      if (request.address) return [{ transactionHash: hash, blockNumber: 100n }];
-      return request.event === ERC721_TRANSFER_EVENT ? [mintLog] : [];
+    const getLogs = vi.fn(async (request: { event?: { name: string }; args?: { to?: Address[] } }) => {
+      return request.event === ERC721_TRANSFER_EVENT && request.args?.to ? [mintLog] : [];
     });
     const client = {
       getLogs,
