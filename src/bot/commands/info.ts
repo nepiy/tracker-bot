@@ -28,7 +28,7 @@ export const INFO_PROMPT = [
   "• an Ethereum, Base, or Robinhood NFT contract",
   "",
   "Example:",
-  "https://opensea.io/collection/fishbroker",
+  "https://opensea.io/collection/stonkbrokers-434284142",
 ].join("\n");
 
 export interface CreatorTokenHistory {
