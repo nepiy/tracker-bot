@@ -11,6 +11,7 @@ const env = {
   ETHEREUM_RPC_URL: "https://ethereum.example",
   BASE_RPC_URL: "https://base.example",
   ROBINHOOD_RPC_URL: "https://robinhood.example",
+  OPENSEA_API_KEY: "test-key",
   MONITORING_CHAINS_JSON: "[]",
   CEX_ADDRESSES_JSON: "[]",
   TELEGRAM_OUTBOX_POLL_INTERVAL_MS: 5_000,
@@ -79,11 +80,15 @@ describe("durable Telegram notification outbox", () => {
   it("durably queues every automatic alert category instead of sending inline", async () => {
     const enqueue = vi.fn(async () => undefined);
     const nativeUsdRateLookup = vi.fn(async () => "2000");
-    const service = new NotificationService(env, { enqueue } as never, nativeUsdRateLookup);
     const wallet = "0x0000000000000000000000000000000000000001" as Address;
     const other = "0x0000000000000000000000000000000000000002" as Address;
     const nft = "0x0000000000000000000000000000000000000003" as Address;
     const hash = `0x${"4".repeat(64)}` as Hash;
+    const openSeaNftLookup = vi.fn(async () => ({
+      name: "Example NFT #42",
+      openSeaUrl: `https://opensea.io/assets/ethereum/${nft}/42`,
+    }));
+    const service = new NotificationService(env, { enqueue } as never, nativeUsdRateLookup, openSeaNftLookup);
 
     await service.send(
       [
@@ -171,6 +176,10 @@ describe("durable Telegram notification outbox", () => {
       eventKey: expect.stringContaining("marketplace:1:"),
       telegramId: 12345,
     });
+    expect(enqueue.mock.calls[1]![0][0].messageText).toContain("NFT name: Example NFT #42");
+    expect(enqueue.mock.calls[1]![0][0].messageText).toContain(`Link: https://opensea.io/assets/ethereum/${nft}/42`);
+    expect(enqueue.mock.calls[1]![0][0].messageText).not.toContain("NFT contract:");
+    expect(openSeaNftLookup).toHaveBeenCalledWith("test-key", "ethereum", nft, 42n);
     expect(enqueue.mock.calls[2]![0][0].eventKey).toContain("free-mint:public-stage:");
     expect(enqueue.mock.calls[3]![0][0].eventKey).toContain("mint-price-change:public-stage:");
     expect(enqueue.mock.calls[4]![0][0]).toMatchObject({

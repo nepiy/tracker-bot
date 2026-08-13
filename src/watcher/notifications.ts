@@ -18,11 +18,17 @@ import { formatTokenWithUsd } from "../utils/price.js";
 import type { TelegramOutboxRepository } from "../database/repositories/telegramOutbox.js";
 import { getOpenSeaTokenDetails } from "../opensea/upcomingDrops.js";
 import { logger } from "../config/logger.js";
+import {
+  getOpenSeaNftSummary,
+  openSeaAssetUrl,
+  type OpenSeaNftSummary,
+} from "../opensea/nft.js";
 
 const NATIVE_ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
 const NATIVE_USD_QUOTE_CACHE_MS = 60_000;
 
 export type NativeUsdRateLookup = (chain: ChainConfig) => Promise<string | null>;
+export type OpenSeaNftLookup = typeof getOpenSeaNftSummary;
 
 export interface ActivityNotification {
   chainId: number;
@@ -46,6 +52,8 @@ export interface MarketplaceNotification {
   quantity: bigint;
   standard: "ERC-721" | "ERC-1155";
   counterparty: Address | null;
+  nftName?: string;
+  openSeaUrl?: string;
 }
 
 function titleCase(value: string): string {
@@ -202,6 +210,9 @@ export function formatActivityAlert(
 export function formatMarketplaceAlert(activity: MarketplaceNotification, env: AppEnv): string {
   const chain = getChainById(activity.chainId, env);
   const action = activity.type === "nft_buy" ? "🟢 BUY" : "🔴 SELL";
+  const openSeaChain = chain.openSeaIdentifiers[0] ?? chain.key;
+  const nftName = activity.nftName?.trim() || `NFT #${activity.tokenId}`;
+  const openSeaUrl = activity.openSeaUrl ?? openSeaAssetUrl(openSeaChain, activity.nftContract, activity.tokenId);
   return [
     "🛍 WALLET MARKETPLACE ACTIVITY",
     "",
@@ -210,10 +221,8 @@ export function formatMarketplaceAlert(activity: MarketplaceNotification, env: A
     `Chain: ${chain.name}`,
     "",
     `Wallet:\n${activity.wallet}`,
-    `NFT contract:\n${activity.nftContract}`,
-    `Standard: ${activity.standard}`,
-    `Token ID: ${activity.tokenId}`,
-    ...(activity.quantity > 1n ? [`Quantity: ${activity.quantity}`] : []),
+    `NFT name: ${nftName}`,
+    `Link: ${openSeaUrl}`,
     ...(activity.counterparty ? [`Counterparty:\n${activity.counterparty}`] : []),
     "",
     `Transaction:\n${activity.hash}`,
@@ -235,6 +244,7 @@ export class NotificationService {
       const token = await getOpenSeaTokenDetails(env.OPENSEA_API_KEY, "ethereum", NATIVE_ETH_ADDRESS);
       return token.usdPrice;
     },
+    private readonly openSeaNftLookup: OpenSeaNftLookup = getOpenSeaNftSummary,
   ) {
     this.api = new Api(env.TELEGRAM_BOT_TOKEN, { timeoutSeconds: 15 });
   }
@@ -276,6 +286,32 @@ export class NotificationService {
   async sendMarketplace(recipients: WalletNotificationRecipient[], activity: MarketplaceNotification): Promise<void> {
     if (!this.outbox) throw new Error("Telegram outbox is required for marketplace notifications");
     const unique = new Map(recipients.map((recipient) => [recipient.telegramId, recipient]));
+    if (unique.size === 0) return;
+    const chain = getChainById(activity.chainId, this.env);
+    const openSeaChain = chain.openSeaIdentifiers[0] ?? chain.key;
+    let nft: OpenSeaNftSummary = {
+      name: `NFT #${activity.tokenId}`,
+      openSeaUrl: openSeaAssetUrl(openSeaChain, activity.nftContract, activity.tokenId),
+    };
+    try {
+      nft = await this.openSeaNftLookup(
+        this.env.OPENSEA_API_KEY,
+        openSeaChain,
+        activity.nftContract,
+        activity.tokenId,
+      ) ?? nft;
+    } catch (error) {
+      logger.warn(
+        {
+          err: error,
+          chainId: activity.chainId,
+          nftContract: activity.nftContract,
+          tokenId: activity.tokenId.toString(),
+        },
+        "OpenSea NFT metadata unavailable for marketplace alert",
+      );
+    }
+    const enriched = { ...activity, nftName: nft.name, openSeaUrl: nft.openSeaUrl };
     await this.outbox.enqueue([...unique.values()].map((recipient) => ({
       eventKey: [
         "marketplace",
@@ -287,7 +323,7 @@ export class NotificationService {
         activity.tokenId,
       ].join(":"),
       telegramId: recipient.telegramId,
-      messageText: formatMarketplaceAlert(activity, this.env),
+      messageText: formatMarketplaceAlert(enriched, this.env),
     })));
   }
 
