@@ -7,7 +7,7 @@ import type { Repositories } from "../database/repositories/index.js";
 import type { ChainConfig } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
-import { expandCollectionWallets, processWatchedRange } from "./watcher.js";
+import { processMarketplaceRange } from "./marketplace.js";
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -58,7 +58,6 @@ export class LivePriorityWatcher {
   private readonly lastProcessed = new Map<number, bigint>();
   private readonly marketplaceFingerprints = new Map<number, string>();
   private readonly lastReconciledAt = new Map<number, number>();
-  private readonly expandedLinks = new Map<number, Set<string>>();
 
   constructor(
     private readonly env: AppEnv,
@@ -68,9 +67,8 @@ export class LivePriorityWatcher {
   }
 
   async pollChainOnce(chain: ChainConfig, client: ChainClient): Promise<LiveScanRange | null> {
-    const [head, allWatched, marketplaceWatched] = await Promise.all([
+    const [head, marketplaceWatched] = await Promise.all([
       withRetry(() => client.getBlockNumber(), { attempts: 3 }),
-      this.repositories.wallets.listActiveWatched(),
       this.repositories.walletSubscriptions.listActiveWatched(chain.chainId),
     ]);
     const confirmations = BigInt(this.env.WATCHER_CONFIRMATIONS);
@@ -98,25 +96,19 @@ export class LivePriorityWatcher {
       return null;
     }
 
-    const links = this.expandedLinks.get(chain.chainId) ?? new Set<string>();
-    this.expandedLinks.set(chain.chainId, links);
-    const watched = await expandCollectionWallets(
-      chain.chainId,
-      allWatched,
-      links,
-      this.repositories,
-    );
-    if (watched.length || marketplaceWatched.length) {
-      await processWatchedRange(
+    if (marketplaceWatched.length) {
+      await processMarketplaceRange(
         chain.chainId,
         range.fromBlock,
         range.toBlock,
-        watched,
         marketplaceWatched,
         client,
         this.repositories,
         this.notifications,
-        this.env.WATCHER_BLOCK_FETCH_CONCURRENCY,
+        async (blockNumber) => {
+          const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
+          return block.timestamp;
+        },
       );
     }
     this.lastProcessed.set(chain.chainId, range.toBlock);

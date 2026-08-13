@@ -135,4 +135,32 @@ describe("live-priority watcher", () => {
     expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 103n, toBlock: 107n }));
     now.mockRestore();
   });
+
+  it("does not let slower collection-wallet scanning delay direct wallet alerts", async () => {
+    const getLogs = vi.fn(async () => []);
+    const client = {
+      getBlockNumber: vi.fn(async () => 105n),
+      getLogs,
+    } as unknown as ChainClient;
+    const listActiveWatched = vi.fn(async () => {
+      throw new Error("collection watcher unavailable");
+    });
+    const repositories = {
+      wallets: { listActiveWatched },
+      walletSubscriptions: {
+        listActiveWatched: vi.fn(async () => [{
+          id: "wallet-id",
+          chain_id: 4663,
+          address: "0x0000000000000000000000000000000000000001" as Address,
+          recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+        }]),
+      },
+      telegramOutbox: {},
+    } as unknown as Repositories;
+
+    await expect(new LivePriorityWatcher(env, repositories).pollChainOnce(chain, client))
+      .resolves.toEqual({ fromBlock: 100n, toBlock: 104n });
+    expect(listActiveWatched).not.toHaveBeenCalled();
+    expect(getLogs).toHaveBeenCalled();
+  });
 });
