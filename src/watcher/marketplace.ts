@@ -12,6 +12,7 @@ import { logger } from "../config/logger.js";
 import type { Repositories } from "../database/repositories/index.js";
 import type { MarketplaceWatchedWallet } from "../database/repositories/walletSubscriptions.js";
 import { normalizeAddress } from "../utils/address.js";
+import { withRetry } from "../utils/retry.js";
 import type { NotificationService } from "./notifications.js";
 
 export const SEAPORT_ORDER_FULFILLED_EVENT = parseAbiItem(
@@ -36,7 +37,7 @@ const ERC721_TRANSFER_TOPIC = toEventSelector("Transfer(address,address,uint256)
 const ERC1155_TRANSFER_SINGLE_TOPIC = toEventSelector("TransferSingle(address,address,address,uint256,uint256)");
 const ERC1155_TRANSFER_BATCH_TOPIC = toEventSelector("TransferBatch(address,address,address,uint256[],uint256[])");
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const MAX_LOG_RANGE_BLOCKS = 10n;
+export const MARKETPLACE_LOG_RANGE_BLOCKS = 10n;
 const MAX_WALLET_TOPICS_PER_QUERY = 100;
 
 interface ReceiptLog {
@@ -157,65 +158,89 @@ export async function processMarketplaceRange(
     return timestamp;
   };
   const settlements = new Map<Hash, bigint>();
-  for (let rangeStart = fromBlock; rangeStart <= toBlock; rangeStart += MAX_LOG_RANGE_BLOCKS) {
-    const rangeEnd = rangeStart + MAX_LOG_RANGE_BLOCKS - 1n < toBlock
-      ? rangeStart + MAX_LOG_RANGE_BLOCKS - 1n
+  for (let rangeStart = fromBlock; rangeStart <= toBlock; rangeStart += MARKETPLACE_LOG_RANGE_BLOCKS) {
+    const rangeEnd = rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n < toBlock
+      ? rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n
       : toBlock;
+    const queryLogs = <T>(operation: () => Promise<T>): Promise<T> => withRetry(operation, {
+      attempts: 4,
+      initialDelayMs: 500,
+      maxDelayMs: 4_000,
+      onRetry: (error, attempt, delayMs) => logger.warn(
+        {
+          err: error,
+          attempt,
+          delayMs,
+          chainId,
+          fromBlock: rangeStart.toString(),
+          toBlock: rangeEnd.toString(),
+        },
+        "retrying marketplace log query",
+      ),
+    });
+    const settlementLogsPromise = queryLogs(() => client.getLogs({
+      address: [...SEAPORT_ADDRESSES],
+      event: SEAPORT_ORDER_FULFILLED_EVENT,
+      fromBlock: rangeStart,
+      toBlock: rangeEnd,
+    }));
+    const mintLogPromises: Promise<unknown[]>[] = [];
     for (let walletOffset = 0; walletOffset < watchedAddresses.length; walletOffset += MAX_WALLET_TOPICS_PER_QUERY) {
       const recipients = watchedAddresses.slice(walletOffset, walletOffset + MAX_WALLET_TOPICS_PER_QUERY);
-      const mintLogs = (await Promise.all([
-        client.getLogs({
+      mintLogPromises.push(
+        queryLogs(() => client.getLogs({
           event: ERC721_TRANSFER_EVENT,
           args: { from: ZERO_ADDRESS, to: recipients },
           fromBlock: rangeStart,
           toBlock: rangeEnd,
           strict: true,
-        }),
-        client.getLogs({
+        })),
+        queryLogs(() => client.getLogs({
           event: ERC1155_TRANSFER_SINGLE_EVENT,
           args: { from: ZERO_ADDRESS, to: recipients },
           fromBlock: rangeStart,
           toBlock: rangeEnd,
           strict: true,
-        }),
-        client.getLogs({
+        })),
+        queryLogs(() => client.getLogs({
           event: ERC1155_TRANSFER_BATCH_EVENT,
           args: { from: ZERO_ADDRESS, to: recipients },
           fromBlock: rangeStart,
           toBlock: rangeEnd,
           strict: true,
-        }),
-      ])).flat();
+        })),
+      );
+    }
 
-      for (const log of mintLogs) {
-        if (!log.transactionHash || log.blockNumber === null) continue;
-        const transfers = decodeNftTransfers([log as unknown as ReceiptLog]);
-        for (const transfer of transfers) {
-          if (transfer.from.toLowerCase() !== ZERO_ADDRESS) continue;
-          const wallet = watchedByAddress.get(transfer.to.toLowerCase());
-          if (!wallet) continue;
-          const timestamp = await timestampForBlock(log.blockNumber);
-          await recordWalletNftActivity(
-            "nft_mint",
-            wallet,
-            transfer,
-            chainId,
-            log.transactionHash,
-            log.blockNumber,
-            timestamp,
-            repositories,
-            notifications,
-          );
-        }
+    const [settlementLogs, ...mintLogGroups] = await Promise.all([
+      settlementLogsPromise,
+      ...mintLogPromises,
+    ]);
+    const mintLogs = mintLogGroups.flat();
+
+    for (const rawLog of mintLogs) {
+      const log = rawLog as { transactionHash: Hash | null; blockNumber: bigint | null } & ReceiptLog;
+      if (!log.transactionHash || log.blockNumber === null) continue;
+      const transfers = decodeNftTransfers([log]);
+      for (const transfer of transfers) {
+        if (transfer.from.toLowerCase() !== ZERO_ADDRESS) continue;
+        const wallet = watchedByAddress.get(transfer.to.toLowerCase());
+        if (!wallet) continue;
+        const timestamp = await timestampForBlock(log.blockNumber);
+        await recordWalletNftActivity(
+          "nft_mint",
+          wallet,
+          transfer,
+          chainId,
+          log.transactionHash,
+          log.blockNumber,
+          timestamp,
+          repositories,
+          notifications,
+        );
       }
     }
 
-    const settlementLogs = await client.getLogs({
-      address: [...SEAPORT_ADDRESSES],
-      event: SEAPORT_ORDER_FULFILLED_EVENT,
-      fromBlock: rangeStart,
-      toBlock: rangeEnd,
-    });
     for (const log of settlementLogs) {
       if (!log.transactionHash) continue;
       settlements.set(log.transactionHash, log.blockNumber ?? rangeStart);
@@ -223,7 +248,15 @@ export async function processMarketplaceRange(
   }
 
   for (const [hash, blockNumber] of settlements) {
-    const receipt = await client.getTransactionReceipt({ hash });
+    const receipt = await withRetry(() => client.getTransactionReceipt({ hash }), {
+      attempts: 4,
+      initialDelayMs: 500,
+      maxDelayMs: 4_000,
+      onRetry: (error, attempt, delayMs) => logger.warn(
+        { err: error, attempt, delayMs, chainId, txHash: hash },
+        "retrying marketplace receipt query",
+      ),
+    });
     if (receipt.status !== "success") continue;
     const timestamp = await timestampForBlock(blockNumber);
     const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]);

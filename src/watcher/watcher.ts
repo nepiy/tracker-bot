@@ -9,7 +9,7 @@ import type { WatchedWallet } from "../database/repositories/wallets.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 import { processBlock, type ProcessableBlock } from "./processBlock.js";
-import { processMarketplaceRange } from "./marketplace.js";
+import { MARKETPLACE_LOG_RANGE_BLOCKS, processMarketplaceRange } from "./marketplace.js";
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -34,6 +34,11 @@ export function selectWatcherResumeBlock(
   if (lastProcessed > safeHead) return safeHead;
   if (safeHead - lastProcessed <= maxBacklog) return lastProcessed;
   return safeHead > lookback ? safeHead - lookback : 0n;
+}
+
+export function selectWatcherScanBatchSize(configuredBatchSize: bigint, hasMarketplaceWallets: boolean): bigint {
+  if (!hasMarketplaceWallets) return configuredBatchSize;
+  return minBlock(configuredBatchSize, MARKETPLACE_LOG_RANGE_BLOCKS);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -156,7 +161,13 @@ export class WalletWatcher {
           await this.repositories.transactions.setLastProcessedBlock(chain.chainId, lastProcessed);
         }
 
-        const batchSize = BigInt(this.env.WATCHER_SCAN_BATCH_SIZE);
+        // Persist the cursor after each provider-compatible marketplace range. If a
+        // transient RPC failure happens, only this small range is retried instead
+        // of replaying a full high-throughput-chain batch indefinitely.
+        const batchSize = selectWatcherScanBatchSize(
+          BigInt(this.env.WATCHER_SCAN_BATCH_SIZE),
+          marketplaceWatched.length > 0,
+        );
         for (let fromBlock = lastProcessed + 1n; fromBlock <= safeHead; fromBlock += batchSize) {
           if (signal.aborted) return;
           const toBlock = minBlock(fromBlock + batchSize - 1n, safeHead);

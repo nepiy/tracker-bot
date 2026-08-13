@@ -275,7 +275,7 @@ Optional:
 | `WATCHER_POLL_INTERVAL_MS` | `12000` | Delay after a successful chain scan |
 | `WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS` | `10` | Blocks scanned when a chain cursor is first created |
 | `WATCHER_MAX_BACKLOG_BLOCKS` | `5000` | Maximum cursor lag before the watcher fast-forwards to the recent bootstrap window |
-| `WATCHER_SCAN_BATCH_SIZE` | `250` | Blocks grouped into one watcher scan batch; marketplace logs are split into provider-compatible 10-block requests |
+| `WATCHER_SCAN_BATCH_SIZE` | `250` | Maximum blocks per watcher scan batch; active direct-wallet NFT tracking automatically checkpoints every provider-compatible 10-block range |
 | `WATCHER_BLOCK_FETCH_CONCURRENCY` | `16` | Maximum concurrent block requests while scanning dev-wallet transactions |
 | `WATCHER_CONFIRMATIONS` | `1` | Head blocks held back to reduce reorg risk |
 | `FREE_MINT_POLL_INTERVAL_MS` | `600000` | Opt-in OpenSea upcoming-drop scan interval; minimum 60 seconds |
@@ -395,7 +395,7 @@ Alerts include the collection, chain, inferred wallet, action, destination/route
 
 Direct wallet subscriptions use a separate NFT-activity path. The watcher detects ERC-721 and ERC-1155 transfers from the zero address into a tracked wallet as `nft_mint`, including mints outside marketplace settlement contracts. For each confirmed canonical Seaport settlement, it decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt; ordinary incoming transfers are recorded as `nft_buy` and outgoing transfers as `nft_sell`. Mint, buy, and sell alerts include the wallet, network, OpenSea NFT name and item link, counterparty when applicable, transaction hash, and explorer link. If OpenSea metadata is temporarily unavailable, the alert still sends with a deterministic `NFT #<token ID>` label and constructed item link.
 
-The watcher scans blocks in bounded concurrent batches and requests Seaport settlement logs in 10-block ranges compatible with free-tier RPC limits. If a persisted chain cursor falls farther behind than `WATCHER_MAX_BACKLOG_BLOCKS`—for example after a deployment has been offline while a high-throughput chain continues producing blocks—it fast-forwards to the recent bootstrap window and resumes real-time monitoring. This intentionally favors current alerts over replaying an unbounded historical backlog; transaction and notification uniqueness constraints still prevent duplicates across restarts.
+The watcher scans blocks in bounded concurrent batches and requests mint and Seaport settlement logs in 10-block ranges compatible with free-tier RPC limits. While direct-wallet NFT tracking is active, it also persists the chain cursor after every 10-block range and retries transient log/receipt failures with bounded exponential backoff. A single RPC error therefore replays only the current small range instead of restarting a large batch and starving alerts on fast chains. If a persisted chain cursor falls farther behind than `WATCHER_MAX_BACKLOG_BLOCKS`—for example after a deployment has been offline while a high-throughput chain continues producing blocks—it fast-forwards to the recent bootstrap window and resumes real-time monitoring. This intentionally favors current alerts over replaying an unbounded historical backlog; transaction and notification uniqueness constraints still prevent duplicates across restarts.
 
 Collection dev-wallet notifications are promoted to `🚨🚨 ALERT: HIGH-RISK DEV ACTIVITY 🚨🚨` when at least one rule matches:
 

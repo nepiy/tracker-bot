@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectWatcherResumeBlock } from "../src/watcher/watcher.js";
+import { selectWatcherResumeBlock, selectWatcherScanBatchSize } from "../src/watcher/watcher.js";
 
 describe("watcher cursor recovery", () => {
   it("keeps a cursor that is within the configured backlog", () => {
@@ -12,5 +12,16 @@ describe("watcher cursor recovery", () => {
 
   it("clamps a cursor when an RPC head moves backwards", () => {
     expect(selectWatcherResumeBlock(10_001n, 10_000n, 5_000n, 10n)).toBe(10_000n);
+  });
+});
+
+describe("watcher scan checkpointing", () => {
+  it("uses provider-compatible ten-block checkpoints while wallet marketplace tracking is active", () => {
+    expect(selectWatcherScanBatchSize(250n, true)).toBe(10n);
+    expect(selectWatcherScanBatchSize(5n, true)).toBe(5n);
+  });
+
+  it("keeps the configured batch size without marketplace wallets", () => {
+    expect(selectWatcherScanBatchSize(250n, false)).toBe(250n);
   });
 });
