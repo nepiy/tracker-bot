@@ -45,6 +45,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const MARKETPLACE_LOG_RANGE_BLOCKS = 5n;
 const MAX_WALLET_TOPICS_PER_QUERY = 100;
 const MAX_RECEIPT_CONCURRENCY = 8;
+const logQueryTails = new Map<number, Promise<void>>();
 
 interface ReceiptLog {
   address: Address;
@@ -67,6 +68,30 @@ async function mapWithConcurrency<T>(
     }
   });
   await Promise.all(workers);
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Serializes eth_getLogs requests for a chain across both live and historical
+ * watchers. This prevents free-tier RPCs from treating parallel NFT filters as
+ * a request burst and returning 429 responses.
+ */
+function paceMarketplaceLogQuery<T>(
+  chainId: number,
+  intervalMs: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = logQueryTails.get(chainId) ?? Promise.resolve();
+  const current = previous.then(operation, operation);
+  const next = current.then(
+    () => wait(intervalMs),
+    () => wait(intervalMs),
+  );
+  logQueryTails.set(chainId, next);
+  return current;
 }
 
 export interface NftTransfer {
@@ -145,6 +170,7 @@ export async function processMarketplaceBlock(
   client: ChainClient,
   repositories: Repositories,
   notifications: NotificationService,
+  logQueryIntervalMs = 0,
 ): Promise<void> {
   await processMarketplaceRange(
     chainId,
@@ -155,6 +181,7 @@ export async function processMarketplaceBlock(
     repositories,
     notifications,
     async () => timestamp,
+    logQueryIntervalMs,
   );
 }
 
@@ -167,6 +194,7 @@ export async function processMarketplaceRange(
   repositories: Repositories,
   notifications: NotificationService,
   getBlockTimestamp: (blockNumber: bigint) => Promise<bigint>,
+  logQueryIntervalMs = 0,
 ): Promise<void> {
   if (watchedWallets.length === 0) return;
   const watchedByAddress = new Map(watchedWallets.map((wallet) => [wallet.address.toLowerCase(), wallet]));
@@ -184,7 +212,9 @@ export async function processMarketplaceRange(
     const rangeEnd = rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n < toBlock
       ? rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n
       : toBlock;
-    const queryLogs = <T>(operation: () => Promise<T>): Promise<T> => withRetry(operation, {
+    const queryLogs = <T>(operation: () => Promise<T>): Promise<T> => withRetry(
+      () => paceMarketplaceLogQuery(chainId, logQueryIntervalMs, operation),
+      {
       attempts: 4,
       initialDelayMs: 500,
       maxDelayMs: 4_000,
@@ -199,7 +229,8 @@ export async function processMarketplaceRange(
         },
         "retrying marketplace log query",
       ),
-    });
+      },
+    );
     const transferLogPromises: Promise<unknown[]>[] = [];
     for (let walletOffset = 0; walletOffset < watchedAddresses.length; walletOffset += MAX_WALLET_TOPICS_PER_QUERY) {
       const addresses = watchedAddresses.slice(walletOffset, walletOffset + MAX_WALLET_TOPICS_PER_QUERY);

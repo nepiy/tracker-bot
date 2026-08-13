@@ -209,6 +209,37 @@ describe("marketplace NFT activity", () => {
     ]));
   });
 
+  it("serializes marketplace log filters to avoid RPC request bursts", async () => {
+    let activeQueries = 0;
+    let maximumActiveQueries = 0;
+    const client = {
+      getLogs: async () => {
+        activeQueries += 1;
+        maximumActiveQueries = Math.max(maximumActiveQueries, activeQueries);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        activeQueries -= 1;
+        return [];
+      },
+    } as unknown as ChainClient;
+
+    await processMarketplaceBlock(
+      4663,
+      100n,
+      1_700_000_000n,
+      [{
+        id: "wallet-id",
+        chain_id: 4663,
+        address: wallet,
+        recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+      }],
+      client,
+      {} as Repositories,
+      {} as NotificationService,
+    );
+
+    expect(maximumActiveQueries).toBe(1);
+  });
+
   it("fetches independent Seaport receipts concurrently for live-scan throughput", async () => {
     const secondHash = `0x${"5".repeat(64)}` as Hash;
     let activeReceipts = 0;

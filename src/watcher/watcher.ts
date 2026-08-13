@@ -76,6 +76,7 @@ export async function processWatchedRange(
   repositories: Repositories,
   notifications: NotificationService,
   blockFetchConcurrency: number,
+  marketplaceLogQueryIntervalMs = 0,
 ): Promise<void> {
   const timestamps = new Map<bigint, bigint>();
 
@@ -122,6 +123,7 @@ export async function processWatchedRange(
         const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
         return block.timestamp;
       },
+      marketplaceLogQueryIntervalMs,
     );
   }
 }
@@ -242,6 +244,7 @@ export class WalletWatcher {
             this.repositories,
             this.notifications,
             this.env.WATCHER_BLOCK_FETCH_CONCURRENCY,
+            this.env.WATCHER_MARKETPLACE_LOG_QUERY_INTERVAL_MS,
           );
 
           await this.repositories.transactions.setLastProcessedBlock(chain.chainId, toBlock);

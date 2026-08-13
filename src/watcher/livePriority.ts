@@ -109,6 +109,7 @@ export class LivePriorityWatcher {
           const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
           return block.timestamp;
         },
+        this.env.WATCHER_MARKETPLACE_LOG_QUERY_INTERVAL_MS,
       );
     }
     this.lastProcessed.set(chain.chainId, range.toBlock);
