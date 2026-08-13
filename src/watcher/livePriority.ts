@@ -7,6 +7,7 @@ import type { Repositories } from "../database/repositories/index.js";
 import type { ChainConfig } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
+import { BlockscoutMarketplaceReconciler } from "./blockscoutMarketplace.js";
 import { processMarketplaceRange } from "./marketplace.js";
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
@@ -55,6 +56,7 @@ export function selectLiveScanRange(
  */
 export class LivePriorityWatcher {
   private readonly notifications: NotificationService;
+  private readonly blockscoutReconciler: BlockscoutMarketplaceReconciler;
   private readonly lastProcessed = new Map<number, bigint>();
   private readonly marketplaceFingerprints = new Map<number, string>();
   private readonly lastReconciledAt = new Map<number, number>();
@@ -64,6 +66,11 @@ export class LivePriorityWatcher {
     private readonly repositories: Repositories,
   ) {
     this.notifications = new NotificationService(env, repositories.telegramOutbox);
+    this.blockscoutReconciler = new BlockscoutMarketplaceReconciler(
+      repositories,
+      this.notifications,
+      env.BLOCKSCOUT_API_KEY,
+    );
   }
 
   async pollChainOnce(chain: ChainConfig, client: ChainClient): Promise<LiveScanRange | null> {
@@ -139,10 +146,34 @@ export class LivePriorityWatcher {
         lookbackBlocks: this.env.WATCHER_LIVE_LOOKBACK_BLOCKS,
         subscriptionReplayBlocks: this.env.WATCHER_SUBSCRIPTION_REPLAY_BLOCKS,
         reconcileIntervalMs: this.env.WATCHER_RECONCILE_INTERVAL_MS,
+        indexedReconciliation: true,
       },
       "live-priority watcher starting",
     );
-    await Promise.all(chains.map((chain) => this.runChain(chain, createChainClient(chain), signal)));
+    await Promise.all(chains.flatMap((chain) => [
+      this.runChain(chain, createChainClient(chain), signal),
+      this.runExplorerChain(chain, signal),
+    ]));
+  }
+
+  private async runExplorerChain(chain: ChainConfig, signal: AbortSignal): Promise<void> {
+    let failureDelayMs = 5_000;
+    while (!signal.aborted) {
+      try {
+        const watchedWallets = await this.repositories.walletSubscriptions.listActiveWatched(chain.chainId);
+        await this.blockscoutReconciler.reconcile(chain, watchedWallets);
+        failureDelayMs = 5_000;
+        await delay(this.env.WATCHER_RECONCILE_INTERVAL_MS, signal);
+      } catch (error) {
+        logger.error(
+          { err: error, chainId: chain.chainId, retryInMs: failureDelayMs },
+          "indexed marketplace reconciliation loop failed",
+        );
+        await delay(failureDelayMs, signal);
+        failureDelayMs = Math.min(failureDelayMs * 2, 30_000);
+      }
+    }
+    logger.info({ chainId: chain.chainId }, "indexed marketplace reconciliation stopped");
   }
 
   private async runChain(chain: ChainConfig, client: ChainClient, signal: AbortSignal): Promise<void> {

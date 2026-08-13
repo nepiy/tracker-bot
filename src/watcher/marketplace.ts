@@ -36,6 +36,7 @@ export const SEAPORT_ADDRESSES = [
 const ERC721_TRANSFER_TOPIC = toEventSelector("Transfer(address,address,uint256)");
 const ERC1155_TRANSFER_SINGLE_TOPIC = toEventSelector("TransferSingle(address,address,address,uint256,uint256)");
 const ERC1155_TRANSFER_BATCH_TOPIC = toEventSelector("TransferBatch(address,address,address,uint256[],uint256[])");
+const ERC20_TRANSFER_TOPIC = toEventSelector("Transfer(address,address,uint256)");
 const SEAPORT_ORDER_FULFILLED_TOPIC = toEventSelector(
   "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
 );
@@ -52,6 +53,14 @@ interface ReceiptLog {
   data: Hex;
   topics: readonly Hex[];
   logIndex: number | null;
+}
+
+interface MarketplaceTransactionContext {
+  from: Address;
+  to: Address | null;
+  value: bigint;
+  logs: readonly ReceiptLog[];
+  seaport: boolean;
 }
 
 async function mapWithConcurrency<T>(
@@ -160,6 +169,40 @@ export function decodeNftTransfers(logs: readonly ReceiptLog[]): NftTransfer[] {
     }
   }
   return transfers;
+}
+
+function hasErc20Payment(
+  logs: readonly ReceiptLog[],
+  wallet: Address,
+  direction: "from" | "to",
+): boolean {
+  const topicIndex = direction === "from" ? 1 : 2;
+  return logs.some((log) => (
+    log.topics.length === 3
+    && log.topics[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC.toLowerCase()
+    && indexedAddress(log.topics[topicIndex]!).toLowerCase() === wallet.toLowerCase()
+  ));
+}
+
+function marketplaceForTransfer(
+  type: "nft_buy" | "nft_sell",
+  wallet: MarketplaceWatchedWallet,
+  transfer: NftTransfer,
+  transaction: MarketplaceTransactionContext,
+): string | null {
+  if (transaction.seaport) return "Seaport";
+  const walletAddress = wallet.address.toLowerCase();
+  const initiatedByWallet = transaction.from.toLowerCase() === walletAddress;
+  const routedThroughAnotherContract = transaction.to !== null
+    && transaction.to.toLowerCase() !== transfer.contract.toLowerCase();
+  if (!routedThroughAnotherContract) return null;
+  if (type === "nft_buy") {
+    const paidFromWallet = hasErc20Payment(transaction.logs, wallet.address, "from")
+      || (initiatedByWallet && transaction.value > 0n);
+    return paidFromWallet ? "Marketplace router" : null;
+  }
+  const paidToWallet = hasErc20Payment(transaction.logs, wallet.address, "to");
+  return paidToWallet || initiatedByWallet ? "Marketplace router" : null;
 }
 
 export async function processMarketplaceBlock(
@@ -329,7 +372,25 @@ export async function processMarketplaceRange(
       SEAPORT_ADDRESSES.some((address) => address.toLowerCase() === log.address.toLowerCase())
       && log.topics[0]?.toLowerCase() === SEAPORT_ORDER_FULFILLED_TOPIC.toLowerCase()
     ));
-    if (!isSeaportSettlement) return;
+    const transaction = isSeaportSettlement
+      ? null
+      : await withRetry(() => client.getTransaction({ hash }), {
+          attempts: 4,
+          initialDelayMs: 500,
+          maxDelayMs: 4_000,
+          onRetry: (error, attempt, delayMs) => logger.warn(
+            { err: error, attempt, delayMs, chainId, txHash: hash },
+            "retrying marketplace transaction query",
+          ),
+        });
+    if (!isSeaportSettlement && !transaction) return;
+    const context: MarketplaceTransactionContext = {
+      from: transaction?.from ?? ZERO_ADDRESS,
+      to: transaction?.to ?? null,
+      value: transaction?.value ?? 0n,
+      logs: receipt.logs as readonly ReceiptLog[],
+      seaport: isSeaportSettlement,
+    };
     const timestamp = await timestampForBlock(blockNumber);
     const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]);
     for (const transfer of transfers) {
@@ -337,20 +398,26 @@ export async function processMarketplaceRange(
       if (transfer.from.toLowerCase() !== ZERO_ADDRESS) {
         const seller = watchedByAddress.get(transfer.from.toLowerCase());
         if (seller) {
-          await recordWalletNftActivity("nft_sell", seller, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications);
+          const marketplace = marketplaceForTransfer("nft_sell", seller, transfer, context);
+          if (marketplace) {
+            await recordWalletNftActivity("nft_sell", seller, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications, marketplace);
+          }
         }
       }
       if (transfer.from.toLowerCase() !== ZERO_ADDRESS && transfer.to.toLowerCase() !== ZERO_ADDRESS) {
         const buyer = watchedByAddress.get(transfer.to.toLowerCase());
         if (buyer) {
-          await recordWalletNftActivity("nft_buy", buyer, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications);
+          const marketplace = marketplaceForTransfer("nft_buy", buyer, transfer, context);
+          if (marketplace) {
+            await recordWalletNftActivity("nft_buy", buyer, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications, marketplace);
+          }
         }
       }
     }
   });
 }
 
-async function recordWalletNftActivity(
+export async function recordWalletNftActivity(
   type: "nft_buy" | "nft_sell" | "nft_mint",
   wallet: MarketplaceWatchedWallet,
   transfer: NftTransfer,
@@ -360,6 +427,7 @@ async function recordWalletNftActivity(
   timestamp: bigint,
   repositories: Repositories,
   notifications: NotificationService,
+  marketplace = type === "nft_mint" ? "On-chain mint" : "Seaport",
 ): Promise<void> {
   const counterparty = type === "nft_buy" ? transfer.from : type === "nft_sell" ? transfer.to : null;
   const activity = {
@@ -369,7 +437,7 @@ async function recordWalletNftActivity(
     logIndex: transfer.logIndex,
     itemIndex: transfer.itemIndex,
     type,
-    marketplace: type === "nft_mint" ? "On-chain mint" : "Seaport",
+    marketplace,
     nftContract: transfer.contract,
     tokenId: transfer.tokenId,
     quantity: transfer.quantity,

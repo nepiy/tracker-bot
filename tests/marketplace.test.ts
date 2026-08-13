@@ -134,6 +134,43 @@ describe("marketplace NFT activity", () => {
     });
   });
 
+  it("recognizes a paid NFT purchase routed through a marketplace aggregator", async () => {
+    const claim = vi.fn(async () => true);
+    const sendMarketplace = vi.fn(async () => undefined);
+    const transferLog = erc721TransferLog();
+    const router = "0x0000000000000000000000000000000000000009" as Address;
+    const client = {
+      getLogs: async (request: { event?: { name: string }; args?: { to?: Address[] } }) => (
+        request.event === ERC721_TRANSFER_EVENT && request.args?.to ? [transferLog] : []
+      ),
+      getTransactionReceipt: async () => ({ status: "success", logs: [transferLog] }),
+      getTransaction: async () => ({ from: wallet, to: router, value: 1_000n }),
+    } as unknown as ChainClient;
+
+    await processMarketplaceBlock(
+      4663,
+      100n,
+      1_700_000_000n,
+      [{
+        id: "wallet-id",
+        chain_id: 4663,
+        address: wallet,
+        recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+      }],
+      client,
+      { marketplaceActivity: { claim } } as unknown as Repositories,
+      { sendMarketplace } as unknown as NotificationService,
+    );
+
+    expect(sendMarketplace).toHaveBeenCalledTimes(1);
+    expect(sendMarketplace.mock.calls[0]![1]).toMatchObject({
+      type: "nft_buy",
+      marketplace: "Marketplace router",
+      nftContract: collection,
+      tokenId: 42n,
+    });
+  });
+
   it("releases marketplace deduplication when notification enqueueing fails", async () => {
     const release = vi.fn(async () => undefined);
     const transferLog = erc721TransferLog();
