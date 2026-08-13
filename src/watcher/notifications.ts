@@ -45,7 +45,7 @@ export interface MarketplaceNotification {
   chainId: number;
   wallet: Address;
   hash: Hash;
-  type: "nft_buy" | "nft_sell";
+  type: "nft_buy" | "nft_sell" | "nft_mint";
   marketplace: string;
   nftContract: Address;
   tokenId: bigint;
@@ -209,7 +209,11 @@ export function formatActivityAlert(
 
 export function formatMarketplaceAlert(activity: MarketplaceNotification, env: AppEnv): string {
   const chain = getChainById(activity.chainId, env);
-  const action = activity.type === "nft_buy" ? "🟢 BUY" : "🔴 SELL";
+  const action = activity.type === "nft_buy"
+    ? "🟢 BUY"
+    : activity.type === "nft_sell"
+      ? "🔴 SELL"
+      : "🟣 NFT MINTED";
   const openSeaChain = chain.openSeaIdentifiers[0] ?? chain.key;
   const nftName = activity.nftName?.trim() || `NFT #${activity.tokenId}`;
   const openSeaUrl = activity.openSeaUrl ?? openSeaAssetUrl(openSeaChain, activity.nftContract, activity.tokenId);

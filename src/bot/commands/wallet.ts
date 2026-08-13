@@ -9,7 +9,7 @@ import { chainLabel, editMessageSafely, homeKeyboard } from "../ui.js";
 export const WALLET_PROMPT = [
   "👛 Track a wallet",
   "",
-  "Send an EVM wallet address. Then choose the network(s) to monitor for NFT marketplace buys and sells.",
+  "Send an EVM wallet address. Then choose the network(s) to monitor for NFT mints and marketplace buys/sells.",
   "",
   "Example:",
   "0x1234567890abcdef1234567890abcdef12345678",
@@ -22,7 +22,7 @@ export function formatWalletSubscriptions(items: WalletSubscriptionView[]): stri
       "",
       "No direct wallet tracking is active.",
       "",
-      "Add a wallet to receive NFT marketplace buy/sell alerts.",
+      "Add a wallet to receive NFT mint and marketplace buy/sell alerts.",
     ].join("\n");
   }
   return [
@@ -33,7 +33,7 @@ export function formatWalletSubscriptions(items: WalletSubscriptionView[]): stri
       `   ${chainLabel(item.chainId, String(item.chainId))} • 🟢 Active`,
     ].join("\n")),
     "",
-    "Alerts are limited to NFT transfers inside recognized marketplace settlement transactions.",
+    "Alerts cover on-chain NFT mints plus NFT transfers inside recognized marketplace settlement transactions.",
   ].join("\n");
 }
 
@@ -142,7 +142,7 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
       address,
       `Networks: ${chains.map((chain) => chain.name).join(", ")}`,
       "",
-      "You’ll receive alerts when this wallet buys or sells an NFT through a recognized marketplace settlement.",
+      "You’ll receive alerts when this wallet mints an NFT or buys/sells through a recognized marketplace settlement.",
     ].join("\n"), { reply_markup: keyboard });
   });
 

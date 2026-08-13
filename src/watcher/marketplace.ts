@@ -17,6 +17,15 @@ import type { NotificationService } from "./notifications.js";
 export const SEAPORT_ORDER_FULFILLED_EVENT = parseAbiItem(
   "event OrderFulfilled(bytes32 orderHash, address indexed offerer, address indexed zone, address recipient, (uint8 itemType, address token, uint256 identifier, uint256 amount)[] offer, (uint8 itemType, address token, uint256 identifier, uint256 amount, address recipient)[] consideration)",
 );
+export const ERC721_TRANSFER_EVENT = parseAbiItem(
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+);
+export const ERC1155_TRANSFER_SINGLE_EVENT = parseAbiItem(
+  "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 tokenId, uint256 quantity)",
+);
+export const ERC1155_TRANSFER_BATCH_EVENT = parseAbiItem(
+  "event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] tokenIds, uint256[] quantities)",
+);
 // Canonical cross-chain deployments published by Project OpenSea.
 export const SEAPORT_ADDRESSES = [
   "0x0000000000000068f116a894984e2db1123eb395",
@@ -28,6 +37,7 @@ const ERC1155_TRANSFER_SINGLE_TOPIC = toEventSelector("TransferSingle(address,ad
 const ERC1155_TRANSFER_BATCH_TOPIC = toEventSelector("TransferBatch(address,address,address,uint256[],uint256[])");
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const MAX_LOG_RANGE_BLOCKS = 10n;
+const MAX_WALLET_TOPICS_PER_QUERY = 100;
 
 interface ReceiptLog {
   address: Address;
@@ -137,11 +147,69 @@ export async function processMarketplaceRange(
 ): Promise<void> {
   if (watchedWallets.length === 0) return;
   const watchedByAddress = new Map(watchedWallets.map((wallet) => [wallet.address.toLowerCase(), wallet]));
+  const watchedAddresses = [...watchedByAddress.values()].map((wallet) => wallet.address);
+  const timestamps = new Map<bigint, bigint>();
+  const timestampForBlock = async (blockNumber: bigint): Promise<bigint> => {
+    const cached = timestamps.get(blockNumber);
+    if (cached !== undefined) return cached;
+    const timestamp = await getBlockTimestamp(blockNumber);
+    timestamps.set(blockNumber, timestamp);
+    return timestamp;
+  };
   const settlements = new Map<Hash, bigint>();
   for (let rangeStart = fromBlock; rangeStart <= toBlock; rangeStart += MAX_LOG_RANGE_BLOCKS) {
     const rangeEnd = rangeStart + MAX_LOG_RANGE_BLOCKS - 1n < toBlock
       ? rangeStart + MAX_LOG_RANGE_BLOCKS - 1n
       : toBlock;
+    for (let walletOffset = 0; walletOffset < watchedAddresses.length; walletOffset += MAX_WALLET_TOPICS_PER_QUERY) {
+      const recipients = watchedAddresses.slice(walletOffset, walletOffset + MAX_WALLET_TOPICS_PER_QUERY);
+      const mintLogs = (await Promise.all([
+        client.getLogs({
+          event: ERC721_TRANSFER_EVENT,
+          args: { from: ZERO_ADDRESS, to: recipients },
+          fromBlock: rangeStart,
+          toBlock: rangeEnd,
+          strict: true,
+        }),
+        client.getLogs({
+          event: ERC1155_TRANSFER_SINGLE_EVENT,
+          args: { from: ZERO_ADDRESS, to: recipients },
+          fromBlock: rangeStart,
+          toBlock: rangeEnd,
+          strict: true,
+        }),
+        client.getLogs({
+          event: ERC1155_TRANSFER_BATCH_EVENT,
+          args: { from: ZERO_ADDRESS, to: recipients },
+          fromBlock: rangeStart,
+          toBlock: rangeEnd,
+          strict: true,
+        }),
+      ])).flat();
+
+      for (const log of mintLogs) {
+        if (!log.transactionHash || log.blockNumber === null) continue;
+        const transfers = decodeNftTransfers([log as unknown as ReceiptLog]);
+        for (const transfer of transfers) {
+          if (transfer.from.toLowerCase() !== ZERO_ADDRESS) continue;
+          const wallet = watchedByAddress.get(transfer.to.toLowerCase());
+          if (!wallet) continue;
+          const timestamp = await timestampForBlock(log.blockNumber);
+          await recordWalletNftActivity(
+            "nft_mint",
+            wallet,
+            transfer,
+            chainId,
+            log.transactionHash,
+            log.blockNumber,
+            timestamp,
+            repositories,
+            notifications,
+          );
+        }
+      }
+    }
+
     const settlementLogs = await client.getLogs({
       address: [...SEAPORT_ADDRESSES],
       event: SEAPORT_ORDER_FULFILLED_EVENT,
@@ -157,28 +225,28 @@ export async function processMarketplaceRange(
   for (const [hash, blockNumber] of settlements) {
     const receipt = await client.getTransactionReceipt({ hash });
     if (receipt.status !== "success") continue;
-    const timestamp = await getBlockTimestamp(blockNumber);
+    const timestamp = await timestampForBlock(blockNumber);
     const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]);
     for (const transfer of transfers) {
       if (transfer.from.toLowerCase() === transfer.to.toLowerCase()) continue;
       if (transfer.from.toLowerCase() !== ZERO_ADDRESS) {
         const seller = watchedByAddress.get(transfer.from.toLowerCase());
         if (seller) {
-          await recordTrade("nft_sell", seller, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications);
+          await recordWalletNftActivity("nft_sell", seller, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications);
         }
       }
-      if (transfer.to.toLowerCase() !== ZERO_ADDRESS) {
+      if (transfer.from.toLowerCase() !== ZERO_ADDRESS && transfer.to.toLowerCase() !== ZERO_ADDRESS) {
         const buyer = watchedByAddress.get(transfer.to.toLowerCase());
         if (buyer) {
-          await recordTrade("nft_buy", buyer, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications);
+          await recordWalletNftActivity("nft_buy", buyer, transfer, chainId, hash, blockNumber, timestamp, repositories, notifications);
         }
       }
     }
   }
 }
 
-async function recordTrade(
-  type: "nft_buy" | "nft_sell",
+async function recordWalletNftActivity(
+  type: "nft_buy" | "nft_sell" | "nft_mint",
   wallet: MarketplaceWatchedWallet,
   transfer: NftTransfer,
   chainId: number,
@@ -188,7 +256,7 @@ async function recordTrade(
   repositories: Repositories,
   notifications: NotificationService,
 ): Promise<void> {
-  const counterparty = type === "nft_buy" ? transfer.from : transfer.to;
+  const counterparty = type === "nft_buy" ? transfer.from : type === "nft_sell" ? transfer.to : null;
   const activity = {
     walletId: wallet.id,
     chainId,
@@ -196,7 +264,7 @@ async function recordTrade(
     logIndex: transfer.logIndex,
     itemIndex: transfer.itemIndex,
     type,
-    marketplace: "Seaport",
+    marketplace: type === "nft_mint" ? "On-chain mint" : "Seaport",
     nftContract: transfer.contract,
     tokenId: transfer.tokenId,
     quantity: transfer.quantity,
@@ -212,13 +280,13 @@ async function recordTrade(
     await repositories.marketplaceActivity.release(activity).catch((releaseError) => {
       logger.error(
         { err: releaseError, chainId, txHash: hash, wallet: wallet.address, activityType: type },
-        "failed to release marketplace activity after notification enqueue failure",
+        "failed to release tracked-wallet NFT activity after notification enqueue failure",
       );
     });
     throw error;
   }
   logger.info(
     { chainId, blockNumber: blockNumber.toString(), txHash: hash, wallet: wallet.address, activityType: type },
-    "processed marketplace wallet activity",
+    "processed tracked-wallet NFT activity",
   );
 }

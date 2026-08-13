@@ -3,7 +3,7 @@ import type { Address, Hash } from "viem";
 import type { AppEnv } from "../src/config/env.js";
 import type { Repositories } from "../src/database/repositories/index.js";
 import type { TelegramOutboxItem } from "../src/database/repositories/telegramOutbox.js";
-import { NotificationService } from "../src/watcher/notifications.js";
+import { formatMarketplaceAlert, NotificationService } from "../src/watcher/notifications.js";
 import { TelegramOutboxWatcher, telegramRetryDelayMs } from "../src/watcher/telegramOutbox.js";
 
 const env = {
@@ -75,6 +75,27 @@ describe("durable Telegram notification outbox", () => {
     expect(telegramRetryDelayMs(1)).toBe(5_000);
     expect(telegramRetryDelayMs(2)).toBe(10_000);
     expect(telegramRetryDelayMs(100)).toBe(3_600_000);
+  });
+
+  it("formats tracked-wallet NFT mints as a distinct alert action", () => {
+    const message = formatMarketplaceAlert({
+      chainId: 4663,
+      wallet: "0x0000000000000000000000000000000000000001",
+      hash: `0x${"4".repeat(64)}`,
+      type: "nft_mint",
+      marketplace: "On-chain mint",
+      nftContract: "0x0000000000000000000000000000000000000003",
+      tokenId: 42n,
+      quantity: 1n,
+      standard: "ERC-721",
+      counterparty: null,
+      nftName: "Minted NFT #42",
+      openSeaUrl: "https://opensea.io/assets/robinhood/0x0000000000000000000000000000000000000003/42",
+    }, env);
+
+    expect(message).toContain("Action: 🟣 NFT MINTED");
+    expect(message).toContain("Marketplace protocol: On-chain mint");
+    expect(message).toContain("NFT name: Minted NFT #42");
   });
 
   it("durably queues every automatic alert category instead of sending inline", async () => {

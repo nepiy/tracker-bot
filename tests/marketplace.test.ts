@@ -13,6 +13,7 @@ import type { Repositories } from "../src/database/repositories/index.js";
 import type { MarketplaceWatchedWallet } from "../src/database/repositories/walletSubscriptions.js";
 import {
   decodeNftTransfers,
+  ERC721_TRANSFER_EVENT,
   processMarketplaceBlock,
   processMarketplaceRange,
   SEAPORT_ADDRESSES,
@@ -68,7 +69,9 @@ describe("marketplace NFT activity", () => {
       return true;
     });
     const sendMarketplace = vi.fn(async () => undefined);
-    const getLogs = vi.fn(async () => [{ transactionHash: hash }]);
+    const getLogs = vi.fn(async (request: { address?: readonly Address[] }) => (
+      request.address ? [{ transactionHash: hash }] : []
+    ));
     const client = {
       getLogs,
       getTransactionReceipt: async () => ({
@@ -112,7 +115,9 @@ describe("marketplace NFT activity", () => {
   it("releases marketplace deduplication when notification enqueueing fails", async () => {
     const release = vi.fn(async () => undefined);
     const client = {
-      getLogs: async () => [{ transactionHash: hash }],
+      getLogs: async (request: { address?: readonly Address[] }) => (
+        request.address ? [{ transactionHash: hash }] : []
+      ),
       getTransactionReceipt: async () => ({
         status: "success",
         logs: [{
@@ -172,10 +177,66 @@ describe("marketplace NFT activity", () => {
       async () => 1_700_000_000n,
     );
 
-    expect(getLogs.mock.calls.map(([request]) => [request.fromBlock, request.toBlock])).toEqual([
+    const seaportRequests = getLogs.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.address);
+    expect(seaportRequests.map((request) => [request.fromBlock, request.toBlock])).toEqual([
       [100n, 109n],
       [110n, 119n],
       [120n, 124n],
     ]);
+  });
+
+  it("stores a tracked-wallet mint once without mislabeling a Seaport mint as a buy", async () => {
+    const claimed = new Set<string>();
+    const claim = vi.fn(async (activity: { txHash: Hash; logIndex: number; itemIndex: number; type: string }) => {
+      const key = `${activity.txHash}:${activity.logIndex}:${activity.itemIndex}:${activity.type}`;
+      if (claimed.has(key)) return false;
+      claimed.add(key);
+      return true;
+    });
+    const sendMarketplace = vi.fn(async () => undefined);
+    const mintLog = {
+      address: collection,
+      data: "0x" as Hex,
+      topics: [
+        toEventSelector("Transfer(address,address,uint256)"),
+        addressTopic("0x0000000000000000000000000000000000000000"),
+        addressTopic(wallet),
+        pad("0x2a", { size: 32 }),
+      ],
+      logIndex: 9,
+      transactionHash: hash,
+      blockNumber: 100n,
+    };
+    const getLogs = vi.fn(async (request: { event?: { name: string }; address?: readonly Address[] }) => {
+      if (request.address) return [{ transactionHash: hash, blockNumber: 100n }];
+      return request.event === ERC721_TRANSFER_EVENT ? [mintLog] : [];
+    });
+    const client = {
+      getLogs,
+      getTransactionReceipt: async () => ({ status: "success", logs: [mintLog] }),
+    } as unknown as ChainClient;
+    const repositories = { marketplaceActivity: { claim } } as unknown as Repositories;
+    const notifications = { sendMarketplace } as unknown as NotificationService;
+    const watched: MarketplaceWatchedWallet[] = [{
+      id: "wallet-id",
+      chain_id: 1,
+      address: wallet,
+      recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+    }];
+
+    await processMarketplaceBlock(1, 100n, 1_700_000_000n, watched, client, repositories, notifications);
+    await processMarketplaceBlock(1, 100n, 1_700_000_000n, watched, client, repositories, notifications);
+
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sendMarketplace).toHaveBeenCalledTimes(1);
+    expect(sendMarketplace.mock.calls[0]![1]).toMatchObject({
+      type: "nft_mint",
+      marketplace: "On-chain mint",
+      nftContract: collection,
+      tokenId: 42n,
+      counterparty: null,
+    });
   });
 });

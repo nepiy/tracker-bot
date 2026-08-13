@@ -1,6 +1,6 @@
 # OpenSea Dev Wallet Tracker Bot
 
-A production-oriented Telegram bot that resolves NFT collections from OpenSea, tracks inferred team-wallet activity, and lets users monitor any EVM wallet for NFT marketplace buys and sells.
+A production-oriented Telegram bot that resolves NFT collections from OpenSea, tracks inferred team-wallet activity, and lets users monitor any EVM wallet for NFT mints and marketplace buys/sells.
 
 OpenSea collection discovery is intentionally limited to:
 
@@ -28,7 +28,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
 - Automatic outgoing-activity alerts for active subscribers, scoped to each collection's own chain
 - Direct wallet subscriptions across Ethereum, Base, and Robinhood Chain
-- Automatic NFT buy/sell alerts for recognized Seaport marketplace settlements
+- Automatic NFT mint alerts plus buy/sell alerts for recognized Seaport marketplace settlements
 - High-risk `ALERT` notifications for native sends or ERC-20 swaps above 90% of the pre-block asset balance
 - High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
 - Optional cross-chain monitoring of inferred dev addresses without cross-chain collection-alert fan-out
@@ -98,8 +98,8 @@ Watcher process (one runner per chain)
       └─ restart-safe block cursor
           ├─ outgoing collection-wallet transaction filter
           │   └─ activity decoder + notification fan-out
-          ├─ canonical Seaport settlement filter
-          │   └─ ERC-721/ERC-1155 receipt decoding + buy/sell alerts
+          ├─ NFT mint + canonical Seaport settlement filters
+          │   └─ ERC-721/ERC-1155 decoding + mint/buy/sell alerts
           └─ high-risk evaluator
               ├─ pre-block native-balance percentage
               ├─ recognized bridge call
@@ -165,7 +165,7 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    list - Open tracked collections
    stop - Stop tracking a collection
    activity - View sends, swaps, and bridges
-   wallet - Track a wallet's NFT buys and sells
+   wallet - Track a wallet's NFT mints and marketplace buys/sells
    wallets - List or stop tracked wallets
    grouptrack - Track a collection in this group (admins only)
    grouplist - List or stop this group's collection alerts (admins only)
@@ -357,7 +357,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
 - `/stop`: inline collection picker that deactivates only that user's subscription
 - `/activity`: interactive collection picker with All, Sends, Swaps, and Bridges filters
-- `/wallet <address>`: choose one or all supported networks for NFT marketplace buy/sell alerts
+- `/wallet <address>`: choose one or all supported networks for NFT mint and marketplace buy/sell alerts
 - Paste an EVM wallet address directly: opens the same network picker
 - `/wallets`: list direct wallet subscriptions and stop individual network subscriptions
 - `/grouptrack <OpenSea URL>`: add a collection to the current Telegram group; group admins only
@@ -393,7 +393,7 @@ For each supported chain, the watcher:
 
 Alerts include the collection, chain, inferred wallet, action, destination/router/bridge, native value with a live approximate USD equivalent when available, transaction hash, and explorer link. For example, `0.002917 ETH (≈ $X.XX)`. A swap that spends more than 90% of the wallet's pre-transaction ERC-20 balance also uses the high-risk `ALERT` heading; the notification names the affected token contract and percentage. Swap and bridge alerts use distinct labels and icons. The same durable outbox handles ordinary dev activity, high-risk alerts, group fan-out, and direct-wallet marketplace buys/sells. A failed Telegram request remains pending and is retried automatically; the stored activity also remains accessible through `/activity`.
 
-Direct wallet subscriptions use a separate marketplace path. For each confirmed canonical Seaport settlement, the watcher decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt. An incoming NFT transfer is recorded as `nft_buy`; an outgoing NFT transfer is recorded as `nft_sell`. Alerts include the wallet, network, OpenSea NFT name and item link, counterparty, transaction hash, and explorer link. If OpenSea metadata is temporarily unavailable, the alert still sends with a deterministic `NFT #<token ID>` label and constructed item link.
+Direct wallet subscriptions use a separate NFT-activity path. The watcher detects ERC-721 and ERC-1155 transfers from the zero address into a tracked wallet as `nft_mint`, including mints outside marketplace settlement contracts. For each confirmed canonical Seaport settlement, it decodes ERC-721, ERC-1155 single, and ERC-1155 batch transfers from the receipt; ordinary incoming transfers are recorded as `nft_buy` and outgoing transfers as `nft_sell`. Mint, buy, and sell alerts include the wallet, network, OpenSea NFT name and item link, counterparty when applicable, transaction hash, and explorer link. If OpenSea metadata is temporarily unavailable, the alert still sends with a deterministic `NFT #<token ID>` label and constructed item link.
 
 The watcher scans blocks in bounded concurrent batches and requests Seaport settlement logs in 10-block ranges compatible with free-tier RPC limits. If a persisted chain cursor falls farther behind than `WATCHER_MAX_BACKLOG_BLOCKS`—for example after a deployment has been offline while a high-throughput chain continues producing blocks—it fast-forwards to the recent bootstrap window and resumes real-time monitoring. This intentionally favors current alerts over replaying an unbounded historical backlog; transaction and notification uniqueness constraints still prevent duplicates across restarts.
 
@@ -472,7 +472,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Only top-level transactions initiated by the watched address alert. An incoming transaction, including one that transfers tokens to the watched wallet, is ignored.
 - Native transfers, common ERC-20 and NFT transfer selectors, common V2/V3/aggregator swap selectors, and bridge deposit/withdrawal selectors are categorized. The activity dashboard counts and filters sends, swaps, and bridges separately. Unknown calldata is safely labeled `Contract interaction`.
 - Internal transfers emitted by a contract call are not fully decoded yet. Receipt/log decoding and protocol-specific swap/bridge registries are the next enrichment layer.
-- Direct wallet buy/sell detection currently covers canonical Seaport 1.5/1.6 settlements (including OpenSea and other Seaport-based marketplace flows). Blur, LooksRare-native, and other non-Seaport protocols require additional verified settlement adapters.
+- Direct wallet mint detection follows standard ERC-721 and ERC-1155 zero-address mint events on every built-in tracking chain. Buy/sell detection currently covers canonical Seaport 1.5/1.6 settlements (including OpenSea and other Seaport-based marketplace flows). Blur, LooksRare-native, and other non-Seaport protocols require additional verified settlement adapters.
 - Marketplace alerts identify NFT direction but do not yet calculate aggregate sale price or fees.
 - The 90% rule measures native currency and standard ERC-20 amounts emitted from the dev wallet during recognized swaps. Non-standard tokens that omit ordinary `Transfer` logs cannot be measured reliably.
 - Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.
@@ -489,7 +489,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 
 ## Tests
 
-The test suite currently contains 86 tests across 21 files. It covers dashboard workflow descriptions and action grouping, fresh paginated upcoming/live free-mint views, short-page cursor continuation, consolidated active-tracking summaries and management paths, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, live floor-currency USD quote refresh and formatting, safe tiny-value and unavailable-quote fallback formatting, OpenSea floor retrieval, OpenSea NFT-name and item-link enrichment, pending-delivery display, confirmed cancellation copy, successful notification queueing, failed-enqueue release behavior, durable Telegram delivery, retry backoff and stale-claim recovery, discovery versus monitoring chain mapping, stale watcher-cursor recovery, provider-compatible marketplace log batching, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block native and ERC-20 swap-balance reads, high-risk native-send/swap/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 marketplace receipt decoding, and duplicate marketplace-alert prevention.
+The test suite currently contains 88 tests across 21 files. It covers dashboard workflow descriptions and action grouping, fresh paginated upcoming/live free-mint views, short-page cursor continuation, consolidated active-tracking summaries and management paths, Telegram group-picker deep links, URL and address validation, collection research by URL and contract, owner/related-collection filtering, creator deployment-history parsing for Etherscan and Blockscout, ERC-20 and DEX-market creator-token filtering, empty-history omission, lossless Telegram message chunking for long creator histories, active/upcoming mint-versus-floor formatting, offer/volume/floor-history metrics, one-time floor-target parsing, upward/downward threshold crossing, live floor-currency USD quote refresh and formatting, safe tiny-value and unavailable-quote fallback formatting, OpenSea floor retrieval, OpenSea NFT-name and item-link enrichment, pending-delivery display, confirmed cancellation copy, successful notification queueing, failed-enqueue release behavior, durable Telegram delivery, retry backoff and stale-claim recovery, discovery versus monitoring chain mapping, stale watcher-cursor recovery, provider-compatible marketplace log batching, OpenSea upcoming free-mint filtering, public paid-stage observation, payment-token metadata, free-to-paid transition rules, GMT and USD alert formatting, cross-chain dev-wallet linkage, personal and group subscription deduplication, Telegram admin-role checks, personal and group alert fan-out, outgoing filtering, pre-block native and ERC-20 swap-balance reads, high-risk native-send/swap/bridge/CEX alerts, send/swap/bridge decoding, direct-wallet and group dashboard formatting, ERC-721/ERC-1155 mint and marketplace decoding, distinct NFT-minted alert formatting, and duplicate marketplace-alert prevention.
 
 ```bash
 npm test

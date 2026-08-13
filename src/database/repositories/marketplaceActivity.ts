@@ -8,7 +8,7 @@ export interface MarketplaceActivityInsert {
   txHash: Hash;
   logIndex: number;
   itemIndex: number;
-  type: "nft_buy" | "nft_sell";
+  type: "nft_buy" | "nft_sell" | "nft_mint";
   marketplace: string;
   nftContract: Address;
   tokenId: bigint;
