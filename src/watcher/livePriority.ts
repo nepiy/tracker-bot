@@ -57,6 +57,7 @@ export class LivePriorityWatcher {
   private readonly notifications: NotificationService;
   private readonly lastProcessed = new Map<number, bigint>();
   private readonly marketplaceFingerprints = new Map<number, string>();
+  private readonly lastReconciledAt = new Map<number, number>();
   private readonly expandedLinks = new Map<number, Set<string>>();
 
   constructor(
@@ -77,13 +78,23 @@ export class LivePriorityWatcher {
     const fingerprint = marketplaceWatchFingerprint(marketplaceWatched);
     const previousFingerprint = this.marketplaceFingerprints.get(chain.chainId);
     const subscriptionsChanged = previousFingerprint !== undefined && previousFingerprint !== fingerprint;
+    const now = Date.now();
+    const previousReconciliation = this.lastReconciledAt.get(chain.chainId);
+    const reconciliationDue = previousReconciliation !== undefined
+      && now - previousReconciliation >= this.env.WATCHER_RECONCILE_INTERVAL_MS;
+    const replayRecentWindow = subscriptionsChanged || reconciliationDue;
     const range = selectLiveScanRange(
-      subscriptionsChanged ? null : this.lastProcessed.get(chain.chainId) ?? null,
+      replayRecentWindow ? null : this.lastProcessed.get(chain.chainId) ?? null,
       safeHead,
-      BigInt(this.env.WATCHER_LIVE_LOOKBACK_BLOCKS),
+      BigInt(subscriptionsChanged
+        ? this.env.WATCHER_SUBSCRIPTION_REPLAY_BLOCKS
+        : this.env.WATCHER_LIVE_LOOKBACK_BLOCKS),
     );
     if (!range) {
       this.marketplaceFingerprints.set(chain.chainId, fingerprint);
+      if (previousReconciliation === undefined || reconciliationDue) {
+        this.lastReconciledAt.set(chain.chainId, now);
+      }
       return null;
     }
 
@@ -110,12 +121,16 @@ export class LivePriorityWatcher {
     }
     this.lastProcessed.set(chain.chainId, range.toBlock);
     this.marketplaceFingerprints.set(chain.chainId, fingerprint);
+    if (previousReconciliation === undefined || reconciliationDue) {
+      this.lastReconciledAt.set(chain.chainId, now);
+    }
     logger.debug(
       {
         chainId: chain.chainId,
         fromBlock: range.fromBlock.toString(),
         toBlock: range.toBlock.toString(),
         subscriptionsChanged,
+        reconciliationDue,
       },
       "live-priority watcher range processed",
     );
@@ -129,6 +144,8 @@ export class LivePriorityWatcher {
         chains: chains.map((chain) => chain.chainId),
         pollIntervalMs: this.env.WATCHER_LIVE_POLL_INTERVAL_MS,
         lookbackBlocks: this.env.WATCHER_LIVE_LOOKBACK_BLOCKS,
+        subscriptionReplayBlocks: this.env.WATCHER_SUBSCRIPTION_REPLAY_BLOCKS,
+        reconcileIntervalMs: this.env.WATCHER_RECONCILE_INTERVAL_MS,
       },
       "live-priority watcher starting",
     );

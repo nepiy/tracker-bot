@@ -23,6 +23,8 @@ const env = {
   OPENSEA_API_KEY: "test-key",
   WATCHER_CONFIRMATIONS: 1,
   WATCHER_LIVE_LOOKBACK_BLOCKS: 5,
+  WATCHER_SUBSCRIPTION_REPLAY_BLOCKS: 8,
+  WATCHER_RECONCILE_INTERVAL_MS: 10_000,
   WATCHER_BLOCK_FETCH_CONCURRENCY: 4,
 } as AppEnv;
 
@@ -99,8 +101,38 @@ describe("live-priority watcher", () => {
     const watcher = new LivePriorityWatcher(env, repositories);
 
     await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 100n, toBlock: 104n });
+    await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 100n, toBlock: 107n });
+
+    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 100n, toBlock: 107n }));
+  });
+
+  it("periodically reconciles the recent live window with deduplicated processing", async () => {
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValueOnce(1_000).mockReturnValueOnce(12_000);
+    const heads = [105n, 108n];
+    const getLogs = vi.fn(async () => []);
+    const client = {
+      getBlockNumber: vi.fn(async () => heads.shift()!),
+      getLogs,
+    } as unknown as ChainClient;
+    const repositories = {
+      wallets: { listActiveWatched: vi.fn(async () => []) },
+      walletSubscriptions: {
+        listActiveWatched: vi.fn(async () => [{
+          id: "wallet-id",
+          chain_id: 4663,
+          address: "0x0000000000000000000000000000000000000001" as Address,
+          recipients: [{ telegramId: 123, subscriptionId: "subscription-id" }],
+        }]),
+      },
+      telegramOutbox: {},
+    } as unknown as Repositories;
+    const watcher = new LivePriorityWatcher(env, repositories);
+
+    await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 100n, toBlock: 104n });
     await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 103n, toBlock: 107n });
 
     expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 103n, toBlock: 107n }));
+    now.mockRestore();
   });
 });
