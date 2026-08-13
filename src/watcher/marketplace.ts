@@ -40,7 +40,9 @@ const SEAPORT_ORDER_FULFILLED_TOPIC = toEventSelector(
   "OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])",
 );
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-export const MARKETPLACE_LOG_RANGE_BLOCKS = 10n;
+// QuickNode's Robinhood Chain endpoint limits eth_getLogs to five blocks.
+// Keep this shared limit for every provider so one chain cannot stall alerts.
+export const MARKETPLACE_LOG_RANGE_BLOCKS = 5n;
 const MAX_WALLET_TOPICS_PER_QUERY = 100;
 const MAX_RECEIPT_CONCURRENCY = 8;
 

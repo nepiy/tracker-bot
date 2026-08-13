@@ -103,7 +103,8 @@ describe("live-priority watcher", () => {
     await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 100n, toBlock: 104n });
     await expect(watcher.pollChainOnce(chain, client)).resolves.toEqual({ fromBlock: 100n, toBlock: 107n });
 
-    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 100n, toBlock: 107n }));
+    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 100n, toBlock: 104n }));
+    expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ fromBlock: 105n, toBlock: 107n }));
   });
 
   it("periodically reconciles the recent live window with deduplicated processing", async () => {

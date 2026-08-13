@@ -170,7 +170,7 @@ describe("marketplace NFT activity", () => {
     expect(release.mock.calls[0]![0]).toMatchObject({ type: "nft_buy", txHash: hash });
   });
 
-  it("splits marketplace log scans into provider-compatible ten-block ranges", async () => {
+  it("splits marketplace log scans into provider-compatible five-block ranges", async () => {
     const getLogs = vi.fn(async () => []);
     const client = { getLogs } as unknown as ChainClient;
 
@@ -194,13 +194,17 @@ describe("marketplace NFT activity", () => {
       `${request.fromBlock.toString()}:${request.toBlock.toString()}`
     )))];
     expect(ranges).toEqual([
-      "100:109",
-      "110:119",
+      "100:104",
+      "105:109",
+      "110:114",
+      "115:119",
       "120:124",
     ]);
     expect(getLogs.mock.calls.map(([request]) => [request.fromBlock, request.toBlock])).toEqual(expect.arrayContaining([
-      [100n, 109n],
-      [110n, 119n],
+      [100n, 104n],
+      [105n, 109n],
+      [110n, 114n],
+      [115n, 119n],
       [120n, 124n],
     ]));
   });

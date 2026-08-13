@@ -16,8 +16,8 @@ describe("watcher cursor recovery", () => {
 });
 
 describe("watcher scan checkpointing", () => {
-  it("uses provider-compatible ten-block checkpoints while wallet marketplace tracking is active", () => {
-    expect(selectWatcherScanBatchSize(250n, true)).toBe(10n);
+  it("uses provider-compatible five-block checkpoints while wallet marketplace tracking is active", () => {
+    expect(selectWatcherScanBatchSize(250n, true)).toBe(5n);
     expect(selectWatcherScanBatchSize(5n, true)).toBe(5n);
   });
 
