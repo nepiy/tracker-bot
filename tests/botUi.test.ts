@@ -16,6 +16,7 @@ import {
   freeMintDirectoryKeyboard,
   freeMintsMenuKeyboard,
 } from "../src/bot/commands/freeMints.js";
+import { GROUP_TRACK_PROMPT, TRACK_PROMPT } from "../src/bot/commands/track.js";
 
 const subscription: SubscriptionView = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -30,6 +31,12 @@ const subscription: SubscriptionView = {
 };
 
 describe("Telegram collection dashboard", () => {
+  it("asks for a collection link without displaying an example URL", () => {
+    expect(TRACK_PROMPT).toBe("➕ Add an OpenSea collection\n\nSend the full collection link");
+    expect(GROUP_TRACK_PROMPT).toContain("Send the full collection link");
+    expect(GROUP_TRACK_PROMPT).not.toContain("https://");
+  });
+
   it("explains and groups the dashboard's primary workflows", () => {
     expect(MAIN_MENU_TEXT).toContain("🔎 Research NFT");
     expect(MAIN_MENU_TEXT).toContain("🎯 Floor alerts");

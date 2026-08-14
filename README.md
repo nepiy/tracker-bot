@@ -46,7 +46,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 
 ## What it does
 
-Open `/start`, tap **Add Collection**, and send a URL such as `https://opensea.io/collection/fishbroker`. You can also paste the URL directly. The bot will:
+Open `/start`, tap **Add Collection**, and send the full OpenSea collection link. You can also paste the link directly. The bot will:
 
 1. Validate the URL and extract the slug without fetching an arbitrary host.
 2. Resolve the collection name, chain, and contract through OpenSea's v2 API.

@@ -8,16 +8,14 @@ import { isGroupChat, requireGroupAdmin } from "../groupAdmin.js";
 export const TRACK_PROMPT = [
   "➕ Add an OpenSea collection",
   "",
-  "Send the full collection link, for example:",
-  "https://opensea.io/collection/fishbroker",
+  "Send the full collection link",
 ].join("\n");
 
 export const GROUP_TRACK_PROMPT = [
   "👥 Add a collection to this group",
   "",
   "Only group admins can manage group tracking.",
-  "Send the full OpenSea collection link, for example:",
-  "https://opensea.io/collection/fishbroker",
+  "Send the full collection link",
 ].join("\n");
 
 export async function requestOpenSeaLink(ctx: BotContext): Promise<void> {
