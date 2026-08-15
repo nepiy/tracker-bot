@@ -61,8 +61,6 @@ async function chooseNetworks(ctx: BotContext, rawAddress: string): Promise<void
   }
   const keyboard = new InlineKeyboard()
     .text("Ethereum", `wallet:add:1:${address}`)
-    .text("Base", `wallet:add:8453:${address}`)
-    .row()
     .text("Robinhood", `wallet:add:4663:${address}`)
     .text("All networks", `wallet:add:all:${address}`)
     .row()

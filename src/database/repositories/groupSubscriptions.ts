@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
+import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
 import { assertDatabaseResult } from "../client.js";
 import type { NotificationRecipient } from "./subscriptions.js";
 
@@ -61,12 +62,13 @@ export class GroupSubscriptionsRepository {
       .eq("active", true)
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list group subscriptions");
-    return ((data ?? []) as unknown as RawGroupSubscription[]).map((row) => {
+    return ((data ?? []) as unknown as RawGroupSubscription[]).flatMap((row) => {
+      if (row.collections.chain_id === BASE_CHAIN_ID) return [];
       const tracked = row.collections.collection_wallets?.find((link) =>
         ["likely_dev", "tracked_fallback"].includes(link.relationship)
           && link.wallets.chain_id === row.collections.chain_id,
       );
-      return {
+      return [{
         id: row.id,
         collectionId: row.collection_id,
         slug: row.collections.opensea_slug,
@@ -75,7 +77,7 @@ export class GroupSubscriptionsRepository {
         chainId: row.collections.chain_id,
         contractAddress: row.collections.contract_address,
         walletAddress: tracked?.wallets.address ?? null,
-      };
+      }];
     });
   }
 

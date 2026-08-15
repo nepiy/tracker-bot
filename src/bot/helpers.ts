@@ -23,7 +23,6 @@ export function formatTrackingResult(result: TrackingResult): string {
   const status = result.alreadyActive ? "ℹ️ Already tracking" : "✅ Tracking enabled";
   const chainName: Record<number, string> = {
     1: "Ethereum",
-    8453: "Base",
     4663: "Robinhood Chain",
   };
   const walletHeading = result.trackingFallback
@@ -68,7 +67,6 @@ export async function replyWithError(ctx: Context, error: unknown): Promise<void
 export function explorerTransactionUrl(env: AppEnv, chainId: number, hash: string): string {
   const urls: Record<number, string> = {
     1: "https://etherscan.io",
-    8453: "https://basescan.org",
     4663: "https://robinhoodchain.blockscout.com",
   };
   const base = urls[chainId];

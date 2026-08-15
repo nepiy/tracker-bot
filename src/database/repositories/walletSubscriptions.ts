@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
+import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
 import { assertDatabaseResult } from "../client.js";
 
 export interface WalletSubscriptionView {
@@ -63,13 +64,15 @@ export class WalletSubscriptionsRepository {
       .eq("active", true)
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list wallet subscriptions");
-    return ((data ?? []) as unknown as RawWalletSubscription[]).map((row) => ({
-      id: row.id,
-      walletId: row.wallet_id,
-      chainId: row.wallets.chain_id,
-      address: row.wallets.address,
-      active: row.active,
-    }));
+    return ((data ?? []) as unknown as RawWalletSubscription[])
+      .filter((row) => row.wallets.chain_id !== BASE_CHAIN_ID)
+      .map((row) => ({
+        id: row.id,
+        walletId: row.wallet_id,
+        chainId: row.wallets.chain_id,
+        address: row.wallets.address,
+        active: row.active,
+      }));
   }
 
   async deactivate(userId: string, subscriptionId: string): Promise<boolean> {

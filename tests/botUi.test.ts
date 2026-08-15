@@ -43,7 +43,7 @@ describe("Telegram collection dashboard", () => {
     expect(MAIN_MENU_TEXT).toContain("📡 Collection tracking");
     expect(MAIN_MENU_TEXT).toContain("👛 Wallet tracking");
     expect(MAIN_MENU_TEXT).toContain("👥 Group tracking");
-    expect(MAIN_MENU_TEXT).toContain("Ethereum • Base • Robinhood Chain");
+    expect(MAIN_MENU_TEXT).toContain("Ethereum • Robinhood Chain");
 
     expect(mainMenuKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
       ["👥 Add to Group"],
@@ -61,7 +61,7 @@ describe("Telegram collection dashboard", () => {
     const mints = Array.from({ length: 6 }, (_, index) => ({
       slug: `free-${index + 1}`,
       name: `Free Mint ${index + 1}`,
-      chain: index % 2 ? "base" : "robinhood",
+      chain: "robinhood",
       openSeaUrl: `https://opensea.io/collection/free-${index + 1}`,
       stageId: `stage-${index + 1}`,
       stageType: "public_sale",
@@ -99,7 +99,7 @@ describe("Telegram collection dashboard", () => {
       collections: [subscription],
       wallets: [
         { id: "wallet-eth", walletId: "eth", chainId: 1, address: wallet, active: true },
-        { id: "wallet-base", walletId: "base", chainId: 8453, address: wallet, active: true },
+        { id: "wallet-rh", walletId: "rh", chainId: 4663, address: wallet, active: true },
       ],
       priceAlerts: [{
         id: "price-alert",
@@ -125,7 +125,7 @@ describe("Telegram collection dashboard", () => {
     expect(text).toContain("YOUR ACTIVE TRACKING");
     expect(text).toContain("📡 Collections: 1");
     expect(text).toContain("👛 Wallets: 1 address • 2 network monitors");
-    expect(text).toContain("0x57ff...004f — Ethereum, Base");
+    expect(text).toContain("0x57ff...004f — Ethereum, Robinhood Chain");
     expect(text).toContain("FishBroker — floor ≤ 0.001 ETH (≈ $2.00)");
     expect(text).toContain("Free-mint alerts: 🟢 ON");
     expect(text).toContain("managed inside each Telegram group");
@@ -200,7 +200,7 @@ describe("Telegram collection dashboard", () => {
   });
 
   it("builds supported network labels and explorer links", () => {
-    expect(chainLabel(8453, "base")).toBe("Base");
+    expect(chainLabel(4663, "robinhood")).toBe("Robinhood Chain");
     expect(explorerAddressUrl(4663, subscription.contractAddress)).toBe(
       `https://robinhoodchain.blockscout.com/address/${subscription.contractAddress}`,
     );
@@ -211,13 +211,13 @@ describe("Telegram collection dashboard", () => {
     const text = formatWalletSubscriptions([{
       id: "33333333-3333-4333-8333-333333333333",
       walletId: "44444444-4444-4444-8444-444444444444",
-      chainId: 8453,
+      chainId: 4663,
       address: subscription.walletAddress!,
       active: true,
     }]);
     expect(text).toContain("1 active");
     expect(text).toContain("0x57ff...004f");
-    expect(text).toContain("Base • 🟢 Active");
+    expect(text).toContain("Robinhood Chain • 🟢 Active");
   });
 
   it("formats group subscriptions and recognizes only Telegram admin roles", () => {
@@ -245,7 +245,7 @@ describe("Telegram collection dashboard", () => {
     const alert = formatFreeMintAlert({
       slug: "free-public-drop",
       name: "Free Public Drop",
-      chain: "base",
+      chain: "robinhood",
       openSeaUrl: "https://opensea.io/collection/free-public-drop",
       stageId: "public-free",
       stageType: "public_sale",
@@ -266,7 +266,7 @@ describe("Telegram collection dashboard", () => {
       stage: {
         slug: "changed-mint",
         name: "Changed Mint",
-        chain: "base",
+        chain: "robinhood",
         openSeaUrl: "https://opensea.io/collection/changed-mint",
         stageId: "changed-stage",
         stageType: "public_sale",

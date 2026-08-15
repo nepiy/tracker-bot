@@ -23,7 +23,7 @@ describe("OpenSea upcoming free mints", () => {
           drops: [{
             collection_slug: "free-public-drop",
             collection_name: "Free Public Drop",
-            chain: "base",
+            chain: "robinhood",
             opensea_url: "https://opensea.io/collection/free-public-drop",
             next_stage: { start_time: "2026-08-11T14:00:00Z" },
           }],
@@ -33,7 +33,7 @@ describe("OpenSea upcoming free mints", () => {
       return jsonResponse({
         collection_slug: "free-public-drop",
         collection_name: "Free Public Drop",
-        chain: "base",
+        chain: "robinhood",
         opensea_url: "https://opensea.io/collection/free-public-drop",
         stages: [
           {
@@ -76,7 +76,7 @@ describe("OpenSea upcoming free mints", () => {
     await expect(findUpcomingFreeMints("test-key", now, 12, fetcher)).resolves.toEqual([{
       slug: "free-public-drop",
       name: "Free Public Drop",
-      chain: "base",
+      chain: "robinhood",
       openSeaUrl: "https://opensea.io/collection/free-public-drop",
       stageId: "public-free",
       stageType: "public_sale",
@@ -122,7 +122,7 @@ describe("OpenSea upcoming free mints", () => {
 
     await expect(getOpenSeaTokenDetails(
       "test-key",
-      "base",
+      "robinhood",
       "0x0000000000000000000000000000000000000001",
       fetcher,
     )).resolves.toEqual({ symbol: "USDC", decimals: 6, usdPrice: "1.0" });
@@ -155,7 +155,7 @@ describe("OpenSea upcoming free mints", () => {
             {
               collection_slug: "live-free",
               collection_name: "Live Free",
-              chain: "base",
+              chain: "robinhood",
               opensea_url: "https://opensea.io/collection/live-free",
               is_minting: true,
               active_stage: {
@@ -177,7 +177,7 @@ describe("OpenSea upcoming free mints", () => {
         drops: [{
           collection_slug: "live-free",
           collection_name: "Live Free",
-          chain: "base",
+          chain: "robinhood",
           opensea_url: "https://opensea.io/collection/live-free",
           is_minting: true,
           active_stage: {

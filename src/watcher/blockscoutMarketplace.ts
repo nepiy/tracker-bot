@@ -20,7 +20,6 @@ const TRANSACTION_CONCURRENCY = 4;
 
 const BLOCKSCOUT_FALLBACKS: Partial<Record<number, string>> = {
   1: "https://eth.blockscout.com",
-  8453: "https://base.blockscout.com",
 };
 
 interface BlockscoutAccount {

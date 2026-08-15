@@ -25,7 +25,7 @@ export const INFO_PROMPT = [
   "",
   "Send either:",
   "• an OpenSea collection link",
-  "• an Ethereum, Base, or Robinhood NFT contract",
+  "• an Ethereum or Robinhood NFT contract",
   "",
   "Example:",
   "https://opensea.io/collection/stonkbrokers-434284142",

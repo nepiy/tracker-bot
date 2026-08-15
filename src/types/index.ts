@@ -1,6 +1,6 @@
 import type { Address, Hash } from "viem";
 
-export type SupportedChainKey = "ethereum" | "base" | "robinhood";
+export type SupportedChainKey = "ethereum" | "robinhood";
 export type ExplorerType = "etherscan" | "blockscout";
 
 export interface ChainConfig {

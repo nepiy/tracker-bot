@@ -5,10 +5,9 @@ A production-oriented Telegram bot that resolves NFT collections from OpenSea, t
 OpenSea collection discovery is intentionally limited to:
 
 - Ethereum (`1`)
-- Base (`8453`)
 - Robinhood Chain (`4663`)
 
-The inferred dev address is monitored on all three by default. Additional EVM monitoring networks can be added with RPC/explorer configuration without enabling OpenSea discovery on those chains.
+The inferred dev address is monitored on Ethereum and Robinhood Chain by default. Base tracking is disabled. Additional EVM monitoring networks can be added with RPC/explorer configuration without enabling OpenSea discovery on those chains.
 
 The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the OpenSea API, Etherscan v2, Blockscout v2, and DEX Screener's public API.
 
@@ -17,7 +16,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Interactive Telegram dashboard with inline navigation and a front-page **Add to Group** action
 - Fresh OpenSea free-mint browser with separate paginated **Upcoming** and **Live now** views
 - Personal **Active Tracking** overview combining collections, wallets, floor targets, and free-mint status
-- Read-only collection research from an OpenSea URL or Ethereum/Base/Robinhood NFT contract
+- Read-only collection research from an OpenSea URL or Ethereum/Robinhood NFT contract
 - Collection owner, live mint-or-floor details with approximate USD conversion, top offer, 24-hour volume, and floor-price change reporting
 - Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
 - Cross-chain creator-token history for deployer-created ERC-20 contracts with detected DEX markets, omitted when none exist
@@ -27,7 +26,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Collection dashboard with network, contract, inferred wallet, OpenSea, and explorer details
 - Deterministic contract deployment analysis with clearly separated verified facts and inferred wallet signals
 - Automatic outgoing-activity alerts for active subscribers, scoped to each collection's own chain
-- Direct wallet subscriptions across Ethereum, Base, and Robinhood Chain
+- Direct wallet subscriptions across Ethereum and Robinhood Chain
 - Automatic NFT mint alerts plus buy/sell alerts for recognized Seaport marketplace settlements
 - High-risk `ALERT` notifications for native sends or ERC-20 swaps above 90% of the pre-block asset balance
 - High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
@@ -58,7 +57,7 @@ Open `/start`, tap **Add Collection**, and send the full OpenSea collection link
 7. Persist one subscription per Telegram user and collection.
 8. Monitor each unique wallet once, store outgoing activity, and fan alerts out to every active subscriber.
 
-For research without subscribing, tap **Research NFT** or run `/info`. Send either an OpenSea collection URL or an NFT contract on Ethereum, Base, or Robinhood Chain. The bot resolves the official OpenSea collection and returns its link, contract, chain, OpenSea collection-owner wallet, top collection offer, 24-hour volume, and 24-hour floor-price change. When a mint is active or its next stage begins within 12 hours, mint status, access, price, GMT schedule, wallet limit, and available supply details replace the floor-price line. Otherwise, the current floor price is shown. If the owner's OpenSea profile is attributed as the creator of other collections, up to five are included; the section is omitted when there are none.
+For research without subscribing, tap **Research NFT** or run `/info`. Send either an OpenSea collection URL or an NFT contract on Ethereum or Robinhood Chain. The bot resolves the official OpenSea collection and returns its link, contract, chain, OpenSea collection-owner wallet, top collection offer, 24-hour volume, and 24-hour floor-price change. When a mint is active or its next stage begins within 12 hours, mint status, access, price, GMT schedule, wallet limit, and available supply details replace the floor-price line. Otherwise, the current floor price is shown. If the owner's OpenSea profile is attributed as the creator of other collections, up to five are included; the section is omitted when there are none.
 
 The same research request also resolves the NFT contract's verified deployment initiator and scans that wallet's direct contract-creation history across every configured EVM monitoring chain. Each created contract is checked for ERC-20 metadata and then matched against DEX Screener. When matches exist, the bot sends the full detected history in Telegram-safe follow-up messages with token name, symbol, chain, creation date, contract, explorer link, DEX link, and available price/liquidity/market-cap data. No creator-token section is sent when there are no matches. This check does not require another API key.
 
@@ -72,7 +71,7 @@ Free-mint discovery is optional and disabled for every user by default. Open **S
 
 Users can also tap **Free Mints** or run `/freemints` without enabling automatic alerts. The browser provides separate **Upcoming** and **Live now** views, paginates qualifying stages returned by OpenSea's drop calendar, and performs a fresh API check on every view, refresh, or page action. A mint newly listed after an earlier check therefore appears on the next check. Upcoming covers future public zero-price stages across OpenSea's upcoming calendar; Live now combines OpenSea's featured, upcoming, and recently-minted calendars and requires OpenSea to report an active public zero-price stage. Each entry includes its collection, chain, stage, GMT schedule, and direct OpenSea link.
 
-For direct wallet tracking, tap **Add Wallet**, paste any valid EVM address, and select Ethereum, Base, Robinhood Chain, or all three. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
+For direct wallet tracking, tap **Add Wallet**, paste any valid EVM address, and select Ethereum, Robinhood Chain, or both. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
 To review everything currently enabled for your account, tap **Active Tracking** on the front page or run `/active`. This consolidated dashboard shows active collection dev-wallet monitoring, direct wallets grouped across their selected networks, one-time floor targets and their status, and whether optional free-mint alerts are enabled. Its buttons open each management page directly. Long sections show the first eight items plus the full active count, keeping the Telegram message within its size limit; open the corresponding management page to see every item. Group subscriptions remain managed inside each Telegram group by its admins.
 
@@ -148,8 +147,8 @@ Important source areas:
 - A Telegram bot token
 - A Supabase project
 - An OpenSea API key
-- Production RPC endpoints for Ethereum, Base, and Robinhood Chain
-- An Etherscan API key is recommended for Ethereum and Base contract-creation lookups
+- Production RPC endpoints for Ethereum and Robinhood Chain
+- An Etherscan API key is recommended for Ethereum contract-creation lookups
 
 The public Robinhood RPC in `.env.example` is rate-limited. Use a production provider for deployment.
 
@@ -266,9 +265,8 @@ Required:
 | `SUPABASE_SERVICE_ROLE_KEY` | Backend-only database key |
 | `OPENSEA_API_KEY` | OpenSea v2 API key |
 | `ETHEREUM_RPC_URL` | Ethereum JSON-RPC endpoint |
-| `BASE_RPC_URL` | Base JSON-RPC endpoint |
 | `ROBINHOOD_RPC_URL` | Robinhood Chain JSON-RPC endpoint |
-| `ETHERSCAN_API_KEY` | Recommended Etherscan v2 key for Ethereum and Base; public Blockscout instances are used as fallback |
+| `ETHERSCAN_API_KEY` | Recommended Etherscan v2 key for Ethereum; public Blockscout is used as fallback |
 
 Optional:
 
@@ -297,7 +295,7 @@ Environment values are validated at startup. Secrets are redacted from structure
 
 ### Additional monitoring chains
 
-OpenSea resolution remains limited to Ethereum, Base, and Robinhood Chain. To follow the inferred dev address on additional EVM chains, add their RPC and explorer information as a JSON array. For example:
+OpenSea resolution and built-in tracking are limited to Ethereum and Robinhood Chain. Base chain tracking is disabled; any legacy Base entry in this setting is ignored. To follow the inferred dev address on additional EVM chains, add their RPC and explorer information as a JSON array. For example:
 
 ```dotenv
 MONITORING_CHAINS_JSON=[{"chainId":42161,"name":"Arbitrum One","rpcUrl":"https://YOUR_ARBITRUM_RPC","explorerUrl":"https://arbiscan.io","nativeSymbol":"ETH"},{"chainId":10,"name":"Optimism","rpcUrl":"https://YOUR_OPTIMISM_RPC","explorerUrl":"https://optimistic.etherscan.io","nativeSymbol":"ETH"}]
@@ -310,7 +308,7 @@ Any EVM chain can be added this way, but each chain requires a reliable RPC endp
 CEX deposit addresses are often account- and network-specific, so the project does not pretend that a small static list covers Binance, Bybit, or every exchange. Add addresses you have verified:
 
 ```dotenv
-CEX_ADDRESSES_JSON=[{"chainId":1,"address":"0xYOUR_BINANCE_DEPOSIT_ADDRESS","exchange":"Binance"},{"chainId":8453,"address":"0xYOUR_BYBIT_DEPOSIT_ADDRESS","exchange":"Bybit"}]
+CEX_ADDRESSES_JSON=[{"chainId":1,"address":"0xYOUR_BINANCE_DEPOSIT_ADDRESS","exchange":"Binance"}]
 ```
 
 The registry supports any exchange name and any configured chain. Addresses are normalized and matched against native, ERC-20, and NFT transfer recipients. The labels themselves are public configuration; never place exchange API secrets in this value.
@@ -366,7 +364,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
 - `/stop`: inline collection picker that deactivates only that user's subscription
 - `/activity`: interactive collection picker with All, Sends, Swaps, and Bridges filters
-- `/wallet <address>`: choose one or all supported networks for NFT mint and marketplace buy/sell alerts
+- `/wallet <address>`: choose Ethereum, Robinhood Chain, or both for NFT mint and marketplace buy/sell alerts
 - Paste an EVM wallet address directly: opens the same network picker
 - `/wallets`: list direct wallet subscriptions and stop individual network subscriptions
 - `/grouptrack <OpenSea URL>`: add a collection to the current Telegram group; group admins only
@@ -404,7 +402,7 @@ Alerts include the collection, chain, inferred wallet, action, destination/route
 
 Direct wallet subscriptions use a separate NFT-activity path. The watcher detects ERC-721 and ERC-1155 transfers from the zero address into a tracked wallet as `nft_mint`, including mints outside marketplace settlement contracts. For marketplace activity, it first queries NFT transfers involving tracked wallets and verifies canonical Seaport settlements plus paid transactions routed through marketplace aggregators. Confirmed incoming transfers are recorded as `nft_buy` and outgoing transfers as `nft_sell`; unpaid direct wallet-to-wallet transfers remain ignored. Mint, buy, and sell alerts include the wallet, network, OpenSea NFT name and item link, counterparty when applicable, transaction hash, and explorer link. If OpenSea metadata is temporarily unavailable, the alert still sends with a deterministic `NFT #<token ID>` label and constructed item link.
 
-The watcher now runs three complementary chain paths. The live-priority RPC path is dedicated to direct-wallet NFT mints and marketplace activity; it does not fetch or decode collection dev-wallet activity, keeping wallet purchase alerts independent from the heavier historical scanner. It checks the newest confirmed window every two seconds with an independent in-memory cursor. The durable RPC path continues from the persisted Supabase cursor to backfill older blocks. A third, independent Blockscout reconciliation loop checks the preceding 24 hours of indexed NFT transfers every `WATCHER_RECONCILE_INTERVAL_MS` on Ethereum, Base, and Robinhood. It repairs events missed because an RPC rejected `eth_getLogs`, throttled requests, restarted after the short live window, or advanced a cursor under an older detector. The explorer loop does not depend on the configured RPC URL and retries individual transaction lookups without blocking the fast scanner.
+The watcher now runs three complementary chain paths. The live-priority RPC path is dedicated to direct-wallet NFT mints and marketplace activity; it does not fetch or decode collection dev-wallet activity, keeping wallet purchase alerts independent from the heavier historical scanner. It checks the newest confirmed window every two seconds with an independent in-memory cursor. The durable RPC path continues from the persisted Supabase cursor to backfill older blocks. A third, independent Blockscout reconciliation loop checks the preceding 24 hours of indexed NFT transfers every `WATCHER_RECONCILE_INTERVAL_MS` on Ethereum and Robinhood. It repairs events missed because an RPC rejected `eth_getLogs`, throttled requests, restarted after the short live window, or advanced a cursor under an older detector. The explorer loop does not depend on the configured RPC URL and retries individual transaction lookups without blocking the fast scanner.
 
 All three paths use the same Supabase activity claims and Telegram-outbox uniqueness keys, so overlapping recovery cannot send the same alert twice. Targeted RPC NFT-transfer logs are requested in 5-block ranges, including for QuickNode's Robinhood endpoint; only candidate tracked-wallet transactions require receipt fetches, those fetches use bounded concurrency, and transient log/receipt failures use bounded exponential backoff. If the durable cursor falls farther behind than `WATCHER_MAX_BACKLOG_BLOCKS`, it fast-forwards to the recent bootstrap window while the live-priority and indexed paths continue handling current alerts. The Telegram outbox checks pending messages every second and retains its normal retry behavior after delivery failures. No additional Railway variable is required for indexed recovery; `BLOCKSCOUT_API_KEY` remains optional.
 
@@ -483,7 +481,7 @@ This is an on-chain heuristic, not identity verification. A wallet may belong to
 - Only top-level transactions initiated by the watched address alert. An incoming transaction, including one that transfers tokens to the watched wallet, is ignored.
 - Native transfers, common ERC-20 and NFT transfer selectors, common V2/V3/aggregator swap selectors, and bridge deposit/withdrawal selectors are categorized. The activity dashboard counts and filters sends, swaps, and bridges separately. Unknown calldata is safely labeled `Contract interaction`.
 - Internal transfers emitted by a contract call are not fully decoded yet. Receipt/log decoding and protocol-specific swap/bridge registries are the next enrichment layer.
-- Direct wallet mint detection follows standard ERC-721 and ERC-1155 zero-address mint events on every built-in tracking chain. Buy/sell detection covers canonical Seaport 1.5/1.6 settlements and paid NFT transfers through marketplace router/aggregator contracts. The indexed recovery path uses public Blockscout APIs for Ethereum, Base, and Robinhood and replays up to 24 hours after watcher startup. Unpaid direct transfers are intentionally excluded; unusual protocols that hide both their payment and settlement route can still require a dedicated adapter.
+- Direct wallet mint detection follows standard ERC-721 and ERC-1155 zero-address mint events on every built-in tracking chain. Buy/sell detection covers canonical Seaport 1.5/1.6 settlements and paid NFT transfers through marketplace router/aggregator contracts. The indexed recovery path uses public Blockscout APIs for Ethereum and Robinhood and replays up to 24 hours after watcher startup. Unpaid direct transfers are intentionally excluded; unusual protocols that hide both their payment and settlement route can still require a dedicated adapter.
 - Marketplace alerts identify NFT direction but do not yet calculate aggregate sale price or fees.
 - The 90% rule measures native currency and standard ERC-20 amounts emitted from the dev wallet during recognized swaps. Non-standard tokens that omit ordinary `Transfer` logs cannot be measured reliably.
 - Pre-block balance is deterministic and RPC-portable, but multiple outgoing transactions from the same wallet in one block share that same reference balance.

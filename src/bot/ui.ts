@@ -15,7 +15,7 @@ export const MAIN_MENU_TEXT = [
   "📋 Active tracking — see every personal monitor and alert setting in one place.",
   "🆓 Free mints — freshly browse OpenSea's upcoming and currently live public free mints.",
   "",
-  "Networks: Ethereum • Base • Robinhood Chain",
+  "Networks: Ethereum • Robinhood Chain",
   "",
   "Choose an action:",
 ].join("\n");
@@ -33,7 +33,7 @@ export const HELP_TEXT = [
   "The bot verifies the contract, analyzes on-chain signals to infer a likely dev/team wallet, and alerts on sends, swaps, bridges, contract activity, and configured high-risk movements.",
   "",
   "👛 Track a wallet",
-  "Monitor NFT mints and marketplace buys/sells for any EVM wallet on Ethereum, Base, Robinhood Chain, or all supported networks.",
+  "Monitor NFT mints and marketplace buys/sells for any EVM wallet on Ethereum, Robinhood Chain, or all supported networks.",
   "",
   "👥 Use it in a group",
   "Group admins can add or remove collection tracking. Alerts are then delivered directly to the group.",
@@ -104,7 +104,6 @@ export async function editMessageSafely(
 export function chainLabel(chainId: number, fallback: string): string {
   const labels: Record<number, string> = {
     1: "Ethereum",
-    8453: "Base",
     4663: "Robinhood Chain",
   };
   return labels[chainId] ?? fallback;
@@ -113,7 +112,6 @@ export function chainLabel(chainId: number, fallback: string): string {
 export function explorerAddressUrl(chainId: number, address: string): string | null {
   const explorers: Record<number, string> = {
     1: "https://etherscan.io/address",
-    8453: "https://basescan.org/address",
     4663: "https://robinhoodchain.blockscout.com/address",
   };
   const base = explorers[chainId];

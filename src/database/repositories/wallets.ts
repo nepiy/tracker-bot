@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
+import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
 import type { WalletEvidence } from "../../types/index.js";
 import { assertDatabaseResult } from "../client.js";
 
@@ -49,10 +50,13 @@ export class WalletsRepository {
   async listActiveWatched(): Promise<WatchedWallet[]> {
     const { data: active, error: subscriptionError } = await this.db
       .from("subscriptions")
-      .select("collection_id")
+      .select("collection_id,collections!inner(chain_id)")
       .eq("active", true);
     assertDatabaseResult(subscriptionError, "list active subscriptions");
-    const collectionIds = [...new Set((active ?? []).map((row) => String(row.collection_id)))];
+    const collectionIds = [...new Set((active ?? []).flatMap((row) => {
+      const collection = row.collections as unknown as { chain_id: number };
+      return Number(collection.chain_id) === BASE_CHAIN_ID ? [] : [String(row.collection_id)];
+    }))];
     if (collectionIds.length === 0) return [];
 
     const { data, error } = await this.db

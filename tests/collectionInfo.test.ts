@@ -23,7 +23,7 @@ describe("OpenSea collection information", () => {
           name: "Test Collection",
           owner,
           opensea_url: "https://opensea.io/collection/test-collection",
-          contracts: [{ address: contract, chain: "base" }],
+          contracts: [{ address: contract, chain: "robinhood" }],
           pricing_currencies: {
             listing_currency: {
               address: "0x0000000000000000000000000000000000000000",
@@ -53,8 +53,8 @@ describe("OpenSea collection information", () => {
       if (url.pathname.endsWith("/collections/test-collection/floor_prices")) {
         return jsonResponse({
           floor_prices: [
-            { time: new Date("2026-08-10T12:00:00Z").getTime() / 1_000, token_unit: 0.2, chain: "base" },
-            { time: now.getTime() / 1_000, token_unit: 0.25, chain: "base" },
+            { time: new Date("2026-08-10T12:00:00Z").getTime() / 1_000, token_unit: 0.2, chain: "robinhood" },
+            { time: now.getTime() / 1_000, token_unit: 0.25, chain: "robinhood" },
           ],
         });
       }
@@ -81,7 +81,7 @@ describe("OpenSea collection information", () => {
 
     expect(info).toMatchObject({
       name: "Test Collection",
-      chain: "base",
+      chain: "robinhood",
       contractAddress: contract,
       ownerAddress: owner,
       ownerUsername: "test-owner",
@@ -115,7 +115,7 @@ describe("OpenSea collection information", () => {
       if (url.pathname.includes("/chain/ethereum/contract/")) {
         return jsonResponse({ address: contract, chain: "ethereum", collection: "minting-collection" });
       }
-      if (url.pathname.includes("/chain/base/contract/") || url.pathname.includes("/chain/robinhood/contract/")) {
+      if (url.pathname.includes("/chain/robinhood/contract/")) {
         return jsonResponse({}, 404);
       }
       if (url.pathname.endsWith("/collections/minting-collection")) {
@@ -185,7 +185,7 @@ describe("OpenSea collection information", () => {
         return jsonResponse({
           collection: "upcoming-collection",
           name: "Upcoming Collection",
-          contracts: [{ address: contract, chain: "base" }],
+          contracts: [{ address: contract, chain: "robinhood" }],
         });
       }
       if (url.pathname.endsWith("/drops/upcoming-collection")) {

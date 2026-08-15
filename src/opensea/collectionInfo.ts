@@ -5,7 +5,7 @@ import { findOpenSeaUrl, parseOpenSeaUrl } from "./parseOpenSeaUrl.js";
 import { getOpenSeaTokenDetails, isFreeMintPrice, type OpenSeaTokenDetails } from "./upcomingDrops.js";
 
 const OPEN_SEA_API = "https://api.opensea.io/api/v2";
-const CONTRACT_LOOKUP_CHAINS = ["ethereum", "base", "robinhood"] as const;
+const CONTRACT_LOOKUP_CHAINS = ["ethereum", "robinhood"] as const;
 const MINT_SOON_WINDOW_MS = 12 * 60 * 60 * 1_000;
 
 interface OpenSeaContract {
@@ -290,7 +290,7 @@ async function resolveInput(
       const failedRequest = matches.find((match) => match.status === "rejected");
       if (failedRequest?.status === "rejected") throw failedRequest.reason;
       throw new UserFacingError(
-        "OpenSea could not find that contract on Ethereum, Base, or Robinhood Chain.",
+        "OpenSea could not find that contract on Ethereum or Robinhood Chain.",
         "COLLECTION_CONTRACT_NOT_FOUND",
       );
     }
@@ -359,6 +359,12 @@ export async function getCollectionInfo(
   const contract = selectContract(collection, resolved.contract);
   if (!contract?.address || !contract.chain) {
     throw new UserFacingError("OpenSea did not return a contract for that collection.", "COLLECTION_CONTRACT_MISSING");
+  }
+  if (!CONTRACT_LOOKUP_CHAINS.includes(contract.chain as typeof CONTRACT_LOOKUP_CHAINS[number])) {
+    throw new UserFacingError(
+      "This collection is on an unsupported chain. Only Ethereum and Robinhood Chain are currently supported.",
+      "UNSUPPORTED_CHAIN",
+    );
   }
   const ownerAddress = collection.owner && isAddress(collection.owner, { strict: false })
     ? normalizeAddress(collection.owner)

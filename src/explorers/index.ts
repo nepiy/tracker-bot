@@ -36,7 +36,6 @@ class FallbackExplorer implements ExplorerAdapter {
 
 const BLOCKSCOUT_FALLBACKS: Partial<Record<number, string>> = {
   1: "https://eth.blockscout.com",
-  8453: "https://base.blockscout.com",
 };
 
 export function createExplorer(chain: ChainConfig, env: AppEnv): ExplorerAdapter {

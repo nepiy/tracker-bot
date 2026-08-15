@@ -3,6 +3,7 @@ import { ExternalServiceError } from "../utils/errors.js";
 const OPEN_SEA_API = "https://api.opensea.io/api/v2";
 const MAX_DROP_PAGES = 10;
 const DROP_PAGE_SIZE = 100;
+const SUPPORTED_DROP_CHAINS = new Set(["ethereum", "eth", "robinhood", "robinhood_chain", "robinhood-chain"]);
 
 interface OpenSeaDropStageResponse {
   uuid?: string;
@@ -111,6 +112,7 @@ function stageToMint(
   const slug = summary.collection_slug;
   const startsAt = parseDate(stage.start_time);
   if (!slug || !stage.uuid || !startsAt || !isPublicMintStage(stage)) return null;
+  if (!summary.chain || !SUPPORTED_DROP_CHAINS.has(summary.chain.toLowerCase())) return null;
   return {
     slug,
     name: summary.collection_name ?? slug,

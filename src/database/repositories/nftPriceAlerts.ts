@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
 import { assertDatabaseResult } from "../client.js";
 
 export type NftPriceAlertDirection = "at_or_below" | "at_or_above";
@@ -137,7 +138,9 @@ export class NftPriceAlertsRepository {
       .in("status", ["active", "sending"])
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list NFT floor price alerts");
-    return ((data ?? []) as unknown as NftPriceAlertRow[]).map(toView);
+    return ((data ?? []) as unknown as NftPriceAlertRow[])
+      .filter((row) => row.chain !== "base" && row.chain !== String(BASE_CHAIN_ID))
+      .map(toView);
   }
 
   async cancel(userId: string, alertId: string): Promise<boolean> {
@@ -168,10 +171,12 @@ export class NftPriceAlertsRepository {
       .eq("status", "active")
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list active NFT floor price alerts for watcher");
-    return ((data ?? []) as unknown as NftPriceAlertRow[]).map((row) => ({
-      ...toView(row),
-      telegramId: Number(row.users!.telegram_id),
-    }));
+    return ((data ?? []) as unknown as NftPriceAlertRow[])
+      .filter((row) => row.chain !== "base" && row.chain !== String(BASE_CHAIN_ID))
+      .map((row) => ({
+        ...toView(row),
+        telegramId: Number(row.users!.telegram_id),
+      }));
   }
 
   async recordFloor(

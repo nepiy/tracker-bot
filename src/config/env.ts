@@ -17,7 +17,6 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   OPENSEA_API_KEY: z.string().min(1),
   ETHEREUM_RPC_URL: z.url(),
-  BASE_RPC_URL: z.url(),
   ROBINHOOD_RPC_URL: z.url().default("https://rpc.mainnet.chain.robinhood.com"),
   ETHERSCAN_API_KEY: z.string().optional(),
   BLOCKSCOUT_API_KEY: z.string().optional(),

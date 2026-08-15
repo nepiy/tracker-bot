@@ -15,7 +15,7 @@ export const PRICE_ALERT_COLLECTION_PROMPT = [
   "",
   "Send either:",
   "• an OpenSea collection link",
-  "• an Ethereum, Base, or Robinhood NFT contract",
+  "• an Ethereum or Robinhood NFT contract",
   "",
   "The alert is personal, triggers once, and expires after delivery.",
 ].join("\n");

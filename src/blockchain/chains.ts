@@ -6,6 +6,8 @@ import { getExtraMonitoringChains } from "../config/monitoring.js";
 type DiscoveryChainConfig = ChainConfig & { key: SupportedChainKey };
 type StaticChainConfig = Omit<DiscoveryChainConfig, "rpcUrl"> & { rpcEnvKey: keyof AppEnv };
 
+export const BASE_CHAIN_ID = 8453;
+
 const STATIC_CHAINS: Record<SupportedChainKey, StaticChainConfig> = {
   ethereum: {
     key: "ethereum",
@@ -14,17 +16,6 @@ const STATIC_CHAINS: Record<SupportedChainKey, StaticChainConfig> = {
     openSeaIdentifiers: ["ethereum", "eth"],
     rpcEnvKey: "ETHEREUM_RPC_URL",
     explorerUrl: "https://etherscan.io",
-    explorerApiUrl: "https://api.etherscan.io/v2/api",
-    explorerType: "etherscan",
-    nativeSymbol: "ETH",
-  },
-  base: {
-    key: "base",
-    name: "Base",
-    chainId: 8453,
-    openSeaIdentifiers: ["base"],
-    rpcEnvKey: "BASE_RPC_URL",
-    explorerUrl: "https://basescan.org",
     explorerApiUrl: "https://api.etherscan.io/v2/api",
     explorerType: "etherscan",
     nativeSymbol: "ETH",
@@ -49,7 +40,6 @@ export function getChains(env: AppEnv): Record<SupportedChainKey, DiscoveryChain
   };
   return {
     ethereum: materialize("ethereum"),
-    base: materialize("base"),
     robinhood: materialize("robinhood"),
   };
 }
@@ -57,7 +47,9 @@ export function getChains(env: AppEnv): Record<SupportedChainKey, DiscoveryChain
 export function getMonitoringChains(env: AppEnv): ChainConfig[] {
   const discoveryChains = Object.values(getChains(env));
   const discoveryIds = new Set(discoveryChains.map((chain) => chain.chainId));
-  const extras = getExtraMonitoringChains(env);
+  // Ignore legacy Base entries instead of allowing an old Railway variable to
+  // bring the watcher down after Base support has been removed.
+  const extras = getExtraMonitoringChains(env).filter((chain) => chain.chainId !== BASE_CHAIN_ID);
   for (const chain of extras) {
     if (discoveryIds.has(chain.chainId)) {
       throw new Error(`Monitoring chain ID ${chain.chainId} duplicates a built-in chain`);
