@@ -39,6 +39,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Activity categories and filters for sends, swaps, and bridges
 - ERC-20 and NFT transfer classification plus safe fallback labels for unknown contract calls
 - Restart-safe watcher cursors and transaction deduplication in Supabase
+- Robinhood RPC failover to the public chain endpoint when the configured provider is unavailable or throttled
 - Live-priority newest-block scanning so a historical backlog cannot delay current wallet alerts
 - Durable Telegram notification outbox with stale-claim recovery and exponential delivery retries
 - Per-user rate limiting and structured error logging

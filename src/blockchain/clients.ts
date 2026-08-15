@@ -1,7 +1,16 @@
-import { createPublicClient, defineChain, http } from "viem";
+import { createPublicClient, defineChain, fallback, http } from "viem";
 import { base, mainnet } from "viem/chains";
 import type { AppEnv } from "../config/env.js";
 import type { ChainConfig } from "../types/index.js";
+
+const PUBLIC_ROBINHOOD_RPC_URL = "https://rpc.mainnet.chain.robinhood.com";
+
+function createTransport(config: ChainConfig) {
+  const primary = http(config.rpcUrl, { timeout: 15_000 });
+  if (config.chainId !== 4663 || config.rpcUrl === PUBLIC_ROBINHOOD_RPC_URL) return primary;
+  const secondary = http(PUBLIC_ROBINHOOD_RPC_URL, { timeout: 15_000 });
+  return fallback([primary, secondary], { retryCount: 1, retryDelay: 250 });
+}
 
 export function createChainClient(config: ChainConfig) {
   const chain =
@@ -17,7 +26,7 @@ export function createChainClient(config: ChainConfig) {
             blockExplorers: { default: { name: "Blockscout", url: config.explorerUrl } },
           });
 
-  return createPublicClient({ chain, transport: http(config.rpcUrl, { timeout: 15_000 }) });
+  return createPublicClient({ chain, transport: createTransport(config) });
 }
 
 export type ChainClient = ReturnType<typeof createChainClient>;
