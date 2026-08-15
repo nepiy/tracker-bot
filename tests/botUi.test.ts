@@ -89,7 +89,7 @@ describe("Telegram collection dashboard", () => {
       (button) => button.callback_data === "free-mints:upcoming:1",
     )).toBe(true);
     expect(formatFreeMintDirectory("live", [], 0, now)).toContain(
-      "not currently reporting a free public, GTD, or FCFS stage as live",
+      "not currently reporting a free public, GTD, or FCFS stage as live with supply remaining",
     );
   });
 

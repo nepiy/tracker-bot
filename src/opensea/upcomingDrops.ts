@@ -24,6 +24,8 @@ interface OpenSeaDropSummaryResponse {
   is_minting?: boolean;
   active_stage?: OpenSeaDropStageResponse | null;
   next_stage?: OpenSeaDropStageResponse | null;
+  total_supply?: number | string | null;
+  max_supply?: number | string | null;
 }
 
 interface OpenSeaDropsResponse {
@@ -174,7 +176,7 @@ async function fetchDropCalendar(
 /**
  * Reads a fresh snapshot of public, GTD, and FCFS zero-price stages from OpenSea's drop calendar.
  * Upcoming uses the calendar's next stage; live combines all calendar categories and
- * requires OpenSea to report that the stage is currently minting.
+ * requires OpenSea to report that the stage is currently minting and has supply remaining.
  */
 export async function findFreeMintDirectory(
   apiKey: string,
@@ -187,6 +189,7 @@ export async function findFreeMintDirectory(
     : (["featured", "upcoming", "recently_minted"] as const);
   const pages = await Promise.all(calendarTypes.map((type) => fetchDropCalendar(apiKey, type, fetcher)));
   const unique = new Map<string, UpcomingFreeMint>();
+  const liveCandidates = new Map<string, UpcomingFreeMint>();
 
   for (const summary of pages.flat()) {
     const stage = view === "upcoming" ? summary.next_stage : summary.active_stage;
@@ -196,8 +199,29 @@ export async function findFreeMintDirectory(
     const isLive = summary.is_minting === true
       && mint.startsAt <= now
       && (!mint.endsAt || mint.endsAt > now);
-    if ((view === "upcoming" && isUpcoming) || (view === "live" && isLive)) {
+    if (view === "live" && isLive && !isSoldOut(summary)) {
+      liveCandidates.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+    } else if (view === "upcoming" && isUpcoming) {
       unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+    }
+  }
+
+  if (view === "live" && liveCandidates.size) {
+    const details = await inChunks([...liveCandidates.values()], 5, async (mint) => ({
+      mint,
+      detail: await fetchOpenSeaJson<OpenSeaDropDetailsResponse>(
+        `/drops/${encodeURIComponent(mint.slug)}`,
+        apiKey,
+        fetcher,
+      ),
+    }));
+    for (const { mint, detail } of details) {
+      if (!isSoldOut(detail)) {
+        unique.set(
+          `${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`,
+          mint,
+        );
+      }
     }
   }
 
@@ -206,6 +230,18 @@ export async function findFreeMintDirectory(
 
 export function isFreeMintPrice(price: string): boolean {
   return /^0+$/.test(price);
+}
+
+function parseSupply(value: number | string | null | undefined): bigint | null {
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return BigInt(value.trim());
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  return null;
+}
+
+function isSoldOut(drop: OpenSeaDropSummaryResponse): boolean {
+  const totalSupply = parseSupply(drop.total_supply);
+  const maxSupply = parseSupply(drop.max_supply);
+  return maxSupply !== null && maxSupply > 0n && totalSupply !== null && totalSupply >= maxSupply;
 }
 
 async function inChunks<T, R>(

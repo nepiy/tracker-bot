@@ -211,6 +211,44 @@ describe("OpenSea upcoming free mints", () => {
 
     expect(upcoming.map((mint) => mint.slug)).toEqual(["later-free"]);
     expect(live.map((mint) => mint.slug)).toEqual(["live-free"]);
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+
+  it("hides a free stage when its drop supply is sold out", async () => {
+    const now = new Date("2026-08-15T19:00:00Z");
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (!url.searchParams.has("type")) {
+        return jsonResponse({
+          collection_slug: "sold-out-free",
+          collection_name: "Sold Out Free",
+          chain: "robinhood",
+          total_supply: "1000",
+          max_supply: "1000",
+        });
+      }
+      if (url.searchParams.get("type") !== "featured") return jsonResponse({ drops: [], next: null });
+      return jsonResponse({
+        drops: [{
+          collection_slug: "sold-out-free",
+          collection_name: "Sold Out Free",
+          chain: "robinhood",
+          is_minting: true,
+          active_stage: {
+            uuid: "sold-out-stage",
+            stage_type: "public_sale",
+            label: "Public mint",
+            price: "0",
+            price_currency_address: "0x0000000000000000000000000000000000000000",
+            start_time: "2026-08-15T17:00:00Z",
+            end_time: "2026-08-16T17:00:00Z",
+          },
+        }],
+        next: null,
+      });
+    });
+
+    await expect(findFreeMintDirectory("test-key", "live", now, fetcher)).resolves.toEqual([]);
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
