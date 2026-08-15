@@ -14,7 +14,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("OpenSea upcoming free mints", () => {
-  it("finds zero-price stages starting in the next 12 hours", async () => {
+  it("finds zero-price stages starting in the configured window", async () => {
     const now = new Date("2026-08-11T10:00:00Z");
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -122,6 +122,20 @@ describe("OpenSea upcoming free mints", () => {
       12,
       fetcher,
     )).resolves.toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a one-hour default lookahead for automatic discovery", async () => {
+    const now = new Date("2026-08-11T10:00:00Z");
+    const fetcher = vi.fn(async () => jsonResponse({
+      drops: [{
+        collection_slug: "later-drop",
+        next_stage: { start_time: "2026-08-11T11:01:00Z" },
+      }],
+      next: null,
+    }));
+
+    await expect(findUpcomingFreeMints("test-key", now, undefined, fetcher)).resolves.toEqual([]);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 

@@ -42,7 +42,7 @@ export class FreeMintWatcher {
     if (!recipients.length) return;
 
     const stages = await withRetry(
-      () => findUpcomingMintStages(this.env.OPENSEA_API_KEY, now),
+      () => findUpcomingMintStages(this.env.OPENSEA_API_KEY, now, this.env.FREE_MINT_LOOKAHEAD_HOURS),
       {
         attempts: 3,
         onRetry: (error, attempt) => logger.warn({ err: error, attempt }, "retrying OpenSea drop discovery"),
@@ -151,7 +151,10 @@ export class FreeMintWatcher {
 
   async run(signal: AbortSignal): Promise<void> {
     let failureDelayMs = 5_000;
-    logger.info({ windowHours: 12 }, "free mint watcher starting");
+    logger.info({
+      windowHours: this.env.FREE_MINT_LOOKAHEAD_HOURS,
+      pollIntervalMs: this.env.FREE_MINT_POLL_INTERVAL_MS,
+    }, "free mint watcher starting");
     while (!signal.aborted) {
       try {
         await this.pollOnce();

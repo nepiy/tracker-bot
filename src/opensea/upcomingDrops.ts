@@ -259,7 +259,7 @@ async function inChunks<T, R>(
 export async function findUpcomingMintStages(
   apiKey: string,
   now = new Date(),
-  windowHours = 12,
+  windowHours = 1,
   fetcher: typeof fetch = fetch,
 ): Promise<UpcomingMintStage[]> {
   const cutoff = new Date(now.getTime() + windowHours * 60 * 60 * 1_000);
@@ -302,7 +302,7 @@ export async function findUpcomingMintStages(
 export async function findUpcomingFreeMints(
   apiKey: string,
   now = new Date(),
-  windowHours = 12,
+  windowHours = 1,
   fetcher: typeof fetch = fetch,
 ): Promise<UpcomingFreeMint[]> {
   const stages = await findUpcomingMintStages(apiKey, now, windowHours, fetcher);

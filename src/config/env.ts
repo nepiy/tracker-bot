@@ -33,6 +33,7 @@ const envSchema = z.object({
   WATCHER_SUBSCRIPTION_REPLAY_BLOCKS: z.coerce.number().int().min(10).max(20_000).default(1_000),
   WATCHER_RECONCILE_INTERVAL_MS: z.coerce.number().int().min(10_000).default(30_000),
   WATCHER_MARKETPLACE_LOG_QUERY_INTERVAL_MS: z.coerce.number().int().min(50).default(125),
+  FREE_MINT_LOOKAHEAD_HOURS: z.coerce.number().int().min(1).max(24).default(1),
   FREE_MINT_POLL_INTERVAL_MS: z.coerce.number().int().min(60_000).default(600_000),
   PRICE_ALERT_POLL_INTERVAL_MS: z.coerce.number().int().min(30_000).default(60_000),
   TELEGRAM_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(8),
