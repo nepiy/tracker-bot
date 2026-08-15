@@ -54,6 +54,24 @@ describe("OpenSea upcoming free mints", () => {
             start_time: "2026-08-11T15:00:00Z",
           },
           {
+            uuid: "gtd-free",
+            stage_type: "allowlist",
+            label: "GTD",
+            price: "0",
+            price_currency_address: "0x0000000000000000000000000000000000000000",
+            start_time: "2026-08-11T14:30:00Z",
+            end_time: "2026-08-11T15:00:00Z",
+          },
+          {
+            uuid: "fcfs-free",
+            stage_type: "signed_mint",
+            label: "FCFS",
+            price: "0",
+            price_currency_address: "0x0000000000000000000000000000000000000000",
+            start_time: "2026-08-11T15:30:00Z",
+            end_time: "2026-08-11T16:00:00Z",
+          },
+          {
             uuid: "creator-reserve",
             stage_type: "signed_presale",
             label: "Creator Reserve",
@@ -73,25 +91,19 @@ describe("OpenSea upcoming free mints", () => {
       });
     });
 
-    await expect(findUpcomingFreeMints("test-key", now, 12, fetcher)).resolves.toEqual([{
-      slug: "free-public-drop",
-      name: "Free Public Drop",
-      chain: "robinhood",
-      openSeaUrl: "https://opensea.io/collection/free-public-drop",
-      stageId: "public-free",
-      stageType: "public_sale",
-      stageLabel: "Public mint",
-      price: "0",
-      currencyAddress: "0x0000000000000000000000000000000000000000",
-      startsAt: new Date("2026-08-11T14:00:00Z"),
-      endsAt: new Date("2026-08-11T16:00:00Z"),
-    }]);
+    await expect(findUpcomingFreeMints("test-key", now, 12, fetcher)).resolves.toMatchObject([
+      { stageId: "public-free", stageLabel: "Public mint", startsAt: new Date("2026-08-11T14:00:00Z") },
+      { stageId: "gtd-free", stageLabel: "GTD", startsAt: new Date("2026-08-11T14:30:00Z") },
+      { stageId: "fcfs-free", stageLabel: "FCFS", startsAt: new Date("2026-08-11T15:30:00Z") },
+    ]);
     expect(fetcher).toHaveBeenCalledTimes(2);
 
     const stages = await findUpcomingMintStages("test-key", now, 12, fetcher);
     expect(stages.map((stage) => [stage.stageId, stage.price])).toEqual([
       ["public-free", "0"],
+      ["gtd-free", "0"],
       ["paid", "1000000000000000"],
+      ["fcfs-free", "0"],
     ]);
   });
 
@@ -128,7 +140,7 @@ describe("OpenSea upcoming free mints", () => {
     )).resolves.toEqual({ symbol: "USDC", decimals: 6, usdPrice: "1.0" });
   });
 
-  it("freshly separates upcoming and currently-live public free stages", async () => {
+  it("freshly separates upcoming and currently-live free stages", async () => {
     const now = new Date("2026-08-13T12:00:00Z");
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));

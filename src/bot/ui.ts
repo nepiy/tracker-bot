@@ -13,7 +13,7 @@ export const MAIN_MENU_TEXT = [
   "👛 Wallet tracking — follow NFT mints and marketplace buys/sells for any EVM wallet.",
   "👥 Group tracking — add the bot to a group where admins control collection alerts.",
   "📋 Active tracking — see every personal monitor and alert setting in one place.",
-  "🆓 Free mints — freshly browse OpenSea's upcoming and currently live public free mints.",
+  "🆓 Free mints — freshly browse OpenSea's upcoming and currently live public, GTD, and FCFS stages.",
   "",
   "Networks: Ethereum • Robinhood Chain",
   "",

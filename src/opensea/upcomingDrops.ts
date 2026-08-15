@@ -4,6 +4,7 @@ const OPEN_SEA_API = "https://api.opensea.io/api/v2";
 const MAX_DROP_PAGES = 10;
 const DROP_PAGE_SIZE = 100;
 const SUPPORTED_DROP_CHAINS = new Set(["ethereum", "eth", "robinhood", "robinhood_chain", "robinhood-chain"]);
+const DROP_CALENDAR_CHAINS = "ethereum,robinhood";
 
 interface OpenSeaDropStageResponse {
   uuid?: string;
@@ -94,11 +95,29 @@ function parseDate(value: string | undefined): Date | null {
 
 function startsWithin(stage: OpenSeaDropStageResponse | null | undefined, now: Date, cutoff: Date): boolean {
   const startsAt = parseDate(stage?.start_time);
-  return Boolean(startsAt && startsAt > now && startsAt <= cutoff);
+  return Boolean(startsAt && startsAt >= now && startsAt <= cutoff);
 }
 
-function isPublicMintStage(stage: OpenSeaDropStageResponse): boolean {
-  return stage.stage_type === "public_sale"
+function normalizeStageText(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * OpenSea's API uses `public_sale` for the general public stage, while drops
+ * surfaced in the UI as GTD/FCFS are commonly represented as allowlist or
+ * signed stages with the access name in `label`. Keep those useful public
+ * access phases while excluding creator/team/private stages.
+ */
+function isTrackableMintStage(stage: OpenSeaDropStageResponse): boolean {
+  const stageType = normalizeStageText(stage.stage_type);
+  if (stageType === "public sale" || stageType === "public") return true;
+  const stageText = normalizeStageText(`${stage.stage_type ?? ""} ${stage.label ?? ""}`);
+  const guaranteedOrFirstCome = /\b(?:gtd|guaranteed|fcfs|first come first served|first come first serve)\b/.test(stageText);
+  return guaranteedOrFirstCome;
+}
+
+function isValidMintStage(stage: OpenSeaDropStageResponse): boolean {
+  return isTrackableMintStage(stage)
     && typeof stage.price === "string"
     && /^\d+$/.test(stage.price)
     && typeof stage.price_currency_address === "string"
@@ -111,7 +130,7 @@ function stageToMint(
 ): UpcomingMintStage | null {
   const slug = summary.collection_slug;
   const startsAt = parseDate(stage.start_time);
-  if (!slug || !stage.uuid || !startsAt || !isPublicMintStage(stage)) return null;
+  if (!slug || !stage.uuid || !startsAt || !isValidMintStage(stage)) return null;
   if (!summary.chain || !SUPPORTED_DROP_CHAINS.has(summary.chain.toLowerCase())) return null;
   return {
     slug,
@@ -136,7 +155,11 @@ async function fetchDropCalendar(
   const results: OpenSeaDropSummaryResponse[] = [];
   let cursor: string | null = null;
   for (let page = 0; page < MAX_DROP_PAGES; page += 1) {
-    const query = new URLSearchParams({ type, limit: String(DROP_PAGE_SIZE) });
+    const query = new URLSearchParams({
+      type,
+      limit: String(DROP_PAGE_SIZE),
+      chains: DROP_CALENDAR_CHAINS,
+    });
     if (cursor) query.set("cursor", cursor);
     const response = await fetchOpenSeaJson<OpenSeaDropsResponse>(`/drops?${query}`, apiKey, fetcher);
     results.push(...(Array.isArray(response.drops) ? response.drops : []));
@@ -149,7 +172,7 @@ async function fetchDropCalendar(
 }
 
 /**
- * Reads a fresh snapshot of public, zero-price stages from OpenSea's drop calendar.
+ * Reads a fresh snapshot of public, GTD, and FCFS zero-price stages from OpenSea's drop calendar.
  * Upcoming uses the calendar's next stage; live combines all calendar categories and
  * requires OpenSea to report that the stage is currently minting.
  */
@@ -226,22 +249,14 @@ export async function findUpcomingMintStages(
     const stages = Array.isArray(detail.stages) ? detail.stages : [];
     for (const stage of stages) {
       const startsAt = parseDate(stage.start_time);
-      if (!stage.uuid || !startsAt || !startsWithin(stage, now, cutoff) || !isPublicMintStage(stage)) continue;
-      const endsAt = parseDate(stage.end_time);
-      const mint: UpcomingMintStage = {
-        slug,
-        name: detail.collection_name ?? summary.collection_name ?? slug,
-        chain: detail.chain ?? summary.chain ?? "unknown",
-        openSeaUrl: detail.opensea_url ?? summary.opensea_url ?? `https://opensea.io/collection/${slug}`,
-        stageId: stage.uuid,
-        stageType: stage.stage_type ?? "unknown",
-        stageLabel: stage.label?.trim() || "Mint stage",
-        price: stage.price!,
-        currencyAddress: stage.price_currency_address!.toLowerCase(),
-        startsAt,
-        endsAt,
-      };
-      unique.set(`${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+      if (!stage.uuid || !startsAt || !startsWithin(stage, now, cutoff)) continue;
+      const enrichedSummary: OpenSeaDropSummaryResponse = { ...summary, collection_slug: slug };
+      if (detail.collection_name) enrichedSummary.collection_name = detail.collection_name;
+      if (detail.chain) enrichedSummary.chain = detail.chain;
+      if (detail.opensea_url) enrichedSummary.opensea_url = detail.opensea_url;
+      const mint = stageToMint(enrichedSummary, stage);
+      if (!mint) continue;
+      unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
     }
   }
 

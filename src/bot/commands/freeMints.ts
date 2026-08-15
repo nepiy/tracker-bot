@@ -14,10 +14,10 @@ const PAGE_SIZE = 5;
 export const FREE_MINTS_MENU_TEXT = [
   "🆓 OpenSea Free Mints",
   "",
-  "Browse public, zero-price mint stages listed in OpenSea's drop calendar.",
+  "Browse zero-price public, GTD, and FCFS mint stages listed in OpenSea's drop calendar.",
   "",
   "🕒 Upcoming — scheduled free mints that have not started yet.",
-  "🟢 Live now — free public stages OpenSea currently reports as minting.",
+  "🟢 Live now — free public, GTD, or FCFS stages OpenSea currently reports as minting.",
   "",
   "Every check fetches a new snapshot from OpenSea, so newly listed mints appear the next time you open or refresh a view.",
   "Network gas may still apply.",
@@ -86,15 +86,15 @@ export function formatFreeMintDirectory(
     heading,
     "",
     `Fresh OpenSea check: ${checkedAt(now)} GMT`,
-    `Found: ${allMints.length} public free mint${allMints.length === 1 ? "" : "s"}`,
+    `Found: ${allMints.length} free mint stage${allMints.length === 1 ? "" : "s"}`,
     `Page: ${page + 1}/${pageCount(allMints.length)}`,
     "",
   ];
   if (!mints.length) {
     lines.push(
       view === "upcoming"
-        ? "OpenSea is not currently listing an upcoming public free mint."
-        : "OpenSea is not currently reporting a public free mint as live.",
+        ? "OpenSea is not currently listing an upcoming free public, GTD, or FCFS stage."
+        : "OpenSea is not currently reporting a free public, GTD, or FCFS stage as live.",
       "",
       "Tap Refresh later to run a new check.",
     );

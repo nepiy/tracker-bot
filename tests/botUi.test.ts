@@ -81,7 +81,7 @@ describe("Telegram collection dashboard", () => {
     const text = formatFreeMintDirectory("upcoming", mints, 0, now);
     expect(text).toContain("UPCOMING FREE MINTS");
     expect(text).toContain("Fresh OpenSea check:");
-    expect(text).toContain("Found: 6 public free mints");
+    expect(text).toContain("Found: 6 free mint stages");
     expect(text).toContain("Page: 1/2");
     expect(text).toContain("Free Mint 1");
     expect(text).not.toContain("Free Mint 6");
@@ -89,7 +89,7 @@ describe("Telegram collection dashboard", () => {
       (button) => button.callback_data === "free-mints:upcoming:1",
     )).toBe(true);
     expect(formatFreeMintDirectory("live", [], 0, now)).toContain(
-      "not currently reporting a public free mint as live",
+      "not currently reporting a free public, GTD, or FCFS stage as live",
     );
   });
 
@@ -242,7 +242,7 @@ describe("Telegram collection dashboard", () => {
     expect(formatSettings(false)).toContain("⚪ OFF");
     expect(formatSettings(true)).toContain("🟢 ON");
     expect(formatSettings(true)).toContain("price-change warning");
-    const alert = formatFreeMintAlert({
+    const alertMint = {
       slug: "free-public-drop",
       name: "Free Public Drop",
       chain: "robinhood",
@@ -254,11 +254,15 @@ describe("Telegram collection dashboard", () => {
       currencyAddress: "0x0000000000000000000000000000000000000000",
       startsAt: new Date("2026-08-11T14:05:00Z"),
       endsAt: new Date("2026-08-11T16:00:00Z"),
-    });
+    } as const;
+    const alert = formatFreeMintAlert(alertMint);
     expect(alert).toContain("OPENSEA FREE MINT ALERT");
     expect(alert).toContain("Price: FREE");
     expect(alert).toContain("11 Aug 2026, 14:05 GMT");
     expect(alert).toContain("Access: Public");
+
+    expect(formatFreeMintAlert({ ...alertMint, stageType: "allowlist", stageLabel: "GTD" })).toContain("Access: GTD");
+    expect(formatFreeMintAlert({ ...alertMint, stageType: "signed_mint", stageLabel: "FCFS" })).toContain("Access: FCFS");
   });
 
   it("formats a free-to-paid mint transition with token and USD values", () => {

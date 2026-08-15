@@ -77,6 +77,14 @@ export function formatGmtDate(date: Date): string {
   return `${formatted} GMT`;
 }
 
+function freeMintAccessLabel(mint: UpcomingFreeMint): string {
+  const text = `${mint.stageType} ${mint.stageLabel}`.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  if (/\b(?:gtd|guaranteed)\b/.test(text)) return "GTD";
+  if (/\b(?:fcfs|first come first served|first come first serve)\b/.test(text)) return "FCFS";
+  if (mint.stageType === "public_sale") return "Public";
+  return titleCase(mint.stageType);
+}
+
 export function formatFreeMintAlert(mint: UpcomingFreeMint): string {
   return [
     "🆓 OPENSEA FREE MINT ALERT",
@@ -84,7 +92,7 @@ export function formatFreeMintAlert(mint: UpcomingFreeMint): string {
     `Collection: ${mint.name}`,
     `Chain: ${titleCase(mint.chain)}`,
     `Stage: ${mint.stageLabel}`,
-    `Access: ${mint.stageType === "public_sale" ? "Public" : titleCase(mint.stageType)}`,
+    `Access: ${freeMintAccessLabel(mint)}`,
     "Price: FREE (network gas may apply)",
     "",
     `Starts: ${formatGmtDate(mint.startsAt)}`,
