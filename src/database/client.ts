@@ -2,7 +2,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { AppEnv } from "../config/env.js";
 
 export function createDatabaseClient(env: AppEnv): SupabaseClient {
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  const secretKey = env.SUPABASE_SECRET_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secretKey) throw new Error("A Supabase backend secret key is required");
+  return createClient(env.SUPABASE_URL, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     global: { headers: { "X-Client-Info": "opensea-dev-wallet-tracker/1.0" } },
   });

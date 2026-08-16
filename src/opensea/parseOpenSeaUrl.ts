@@ -2,6 +2,18 @@ import { UserFacingError } from "../utils/errors.js";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,199}$/i;
 
+export function isOpenSeaSlug(value: string): boolean {
+  return SLUG_PATTERN.test(value);
+}
+
+export function openSeaCollectionUrl(slug: string): string {
+  const normalized = slug.trim().toLowerCase();
+  if (!isOpenSeaSlug(normalized)) {
+    throw new UserFacingError("That OpenSea collection slug is invalid.", "INVALID_SLUG");
+  }
+  return `https://opensea.io/collection/${encodeURIComponent(normalized)}`;
+}
+
 export function parseOpenSeaUrl(input: string): string {
   let url: URL;
   try {
@@ -27,7 +39,7 @@ export function parseOpenSeaUrl(input: string): string {
   }
 
   const slug = decodeURIComponent(parts[1]).toLowerCase();
-  if (!SLUG_PATTERN.test(slug)) {
+  if (!isOpenSeaSlug(slug)) {
     throw new UserFacingError("That OpenSea collection slug is invalid.", "INVALID_SLUG");
   }
   return slug;

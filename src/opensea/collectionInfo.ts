@@ -1,8 +1,14 @@
 import { formatUnits, isAddress } from "viem";
 import { normalizeAddress } from "../utils/address.js";
 import { ExternalServiceError, UserFacingError } from "../utils/errors.js";
-import { findOpenSeaUrl, parseOpenSeaUrl } from "./parseOpenSeaUrl.js";
+import {
+  findOpenSeaUrl,
+  isOpenSeaSlug,
+  openSeaCollectionUrl,
+  parseOpenSeaUrl,
+} from "./parseOpenSeaUrl.js";
 import { getOpenSeaTokenDetails, isFreeMintPrice, type OpenSeaTokenDetails } from "./upcomingDrops.js";
+import { safeDisplayText } from "../utils/display.js";
 
 const OPEN_SEA_API = "https://api.opensea.io/api/v2";
 const CONTRACT_LOOKUP_CHAINS = ["ethereum", "robinhood"] as const;
@@ -214,7 +220,7 @@ function tokenFromCollection(
   const currency = allCurrencies(collection).find((candidate) => candidate.address?.toLowerCase() === normalized);
   if (!currency?.symbol || !Number.isInteger(currency.decimals)) return null;
   return {
-    symbol: currency.symbol,
+    symbol: safeDisplayText(currency.symbol, 20, "TOKEN"),
     decimals: currency.decimals!,
     usdPrice: typeof currency.usd_price === "string" && currency.usd_price ? currency.usd_price : null,
   };
@@ -231,7 +237,7 @@ function topOffer(
   const approximateUsd = Number(amount) * Number(rate);
   return {
     amount,
-    symbol: price.currency,
+    symbol: safeDisplayText(price.currency, 20, "TOKEN"),
     approximateUsd: Number.isFinite(approximateUsd) && approximateUsd >= 0 ? approximateUsd : null,
   };
 }
@@ -280,7 +286,9 @@ async function resolveInput(
         fetcher,
         true,
       );
-      return contract?.collection ? { ...contract, address: contract.address ?? address, chain } : null;
+      return contract?.collection && isOpenSeaSlug(contract.collection)
+        ? { ...contract, collection: contract.collection.toLowerCase(), address: contract.address ?? address, chain }
+        : null;
     }));
     const contract = matches
       .filter((match) => match.status === "fulfilled")
@@ -318,11 +326,12 @@ async function loadOwnerCollections(
     fetcher,
     true,
   ));
-  const username = account?.username?.trim() || null;
-  const ensName = account?.ens_name?.trim() || null;
-  if (!username) return { username, ensName, collections: [] };
+  const rawUsername = account?.username?.trim() || null;
+  const username = rawUsername ? safeDisplayText(rawUsername, 100, "") || null : null;
+  const ensName = account?.ens_name ? safeDisplayText(account.ens_name, 255, "") || null : null;
+  if (!rawUsername) return { username, ensName, collections: [] };
 
-  const query = new URLSearchParams({ creator_username: username, limit: "20" });
+  const query = new URLSearchParams({ creator_username: rawUsername, limit: "20" });
   const response = await optional(fetchOpenSeaJson<OpenSeaCollectionsResponse>(
     `/collections?${query}`,
     apiKey,
@@ -330,11 +339,15 @@ async function loadOwnerCollections(
     true,
   ));
   const collections = (response?.collections ?? [])
-    .filter((collection) => collection.collection && collection.collection !== currentSlug)
+    .filter((collection) => (
+      collection.collection
+      && isOpenSeaSlug(collection.collection)
+      && collection.collection.toLowerCase() !== currentSlug.toLowerCase()
+    ))
     .slice(0, 5)
     .map((collection) => ({
-      name: collection.name?.trim() || collection.collection!,
-      openSeaUrl: collection.opensea_url ?? `https://opensea.io/collection/${collection.collection}`,
+      name: safeDisplayText(collection.name, 300, collection.collection!),
+      openSeaUrl: openSeaCollectionUrl(collection.collection!),
     }));
   return { username, ensName, collections };
 }
@@ -355,7 +368,9 @@ export async function getCollectionInfo(
   if (!collection) {
     throw new UserFacingError("OpenSea could not find that NFT collection.", "COLLECTION_NOT_FOUND");
   }
-  const slug = collection.collection ?? resolved.slug;
+  const slug = collection.collection && isOpenSeaSlug(collection.collection)
+    ? collection.collection.toLowerCase()
+    : resolved.slug;
   const contract = selectContract(collection, resolved.contract);
   if (!contract?.address || !contract.chain) {
     throw new UserFacingError("OpenSea did not return a contract for that collection.", "COLLECTION_CONTRACT_MISSING");
@@ -390,8 +405,8 @@ export async function getCollectionInfo(
     }
     mint = {
       status,
-      label: stage.label?.trim() || "Mint stage",
-      stageType: stage.stage_type?.trim() || "unknown",
+      label: safeDisplayText(stage.label, 200, "Mint stage"),
+      stageType: safeDisplayText(stage.stage_type, 100, "unknown"),
       price,
       currencyAddress,
       token,
@@ -409,7 +424,8 @@ export async function getCollectionInfo(
   const listingSymbol = collection.pricing_currencies?.listing_currency?.symbol?.trim()
     || allCurrencies(collection).find((currency) => currency.symbol)?.symbol?.trim()
     || null;
-  const floorPriceSymbol = stats?.total?.floor_price_symbol?.trim() || listingSymbol;
+  const rawFloorPriceSymbol = stats?.total?.floor_price_symbol?.trim() || listingSymbol;
+  const floorPriceSymbol = rawFloorPriceSymbol ? safeDisplayText(rawFloorPriceSymbol, 20, "TOKEN") : null;
   const floorCurrency = floorPriceSymbol
     ? allCurrencies(collection).find((currency) => (
       currency.symbol?.trim().toLowerCase() === floorPriceSymbol.toLowerCase()
@@ -418,8 +434,8 @@ export async function getCollectionInfo(
     : null;
   return {
     slug,
-    name: collection.name?.trim() || slug,
-    openSeaUrl: collection.opensea_url ?? `https://opensea.io/collection/${slug}`,
+    name: safeDisplayText(collection.name, 300, slug),
+    openSeaUrl: openSeaCollectionUrl(slug),
     chain: contract.chain,
     contractAddress: normalizeAddress(contract.address),
     ownerAddress,

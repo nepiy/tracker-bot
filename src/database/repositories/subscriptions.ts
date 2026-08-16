@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
 import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
+import { safeDisplayText } from "../../utils/display.js";
 import { assertDatabaseResult } from "../client.js";
 
 export interface SubscriptionView {
@@ -85,7 +86,7 @@ export class SubscriptionsRepository {
         id: row.id,
         collectionId: row.collection_id,
         slug: row.collections.opensea_slug,
-        name: row.collections.name,
+        name: safeDisplayText(row.collections.name, 300, row.collections.opensea_slug),
         chain: row.collections.chain,
         chainId: row.collections.chain_id,
         contractAddress: row.collections.contract_address,
@@ -129,7 +130,7 @@ export class SubscriptionsRepository {
       if (Number(collection.chain_id) !== chainId) return [];
       return [{
         telegramId: Number(user.telegram_id),
-        collectionName: collection.name,
+        collectionName: safeDisplayText(collection.name, 300, "Unnamed collection"),
         collectionId: String(row.collection_id),
         chainId: Number(collection.chain_id),
       }];

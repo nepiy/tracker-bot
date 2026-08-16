@@ -6,6 +6,7 @@ import type { ActivityRow } from "../../database/repositories/transactions.js";
 import { getChainById } from "../../blockchain/chains.js";
 import { shortAddress } from "../../utils/address.js";
 import { editMessageSafely } from "../ui.js";
+import { requirePrivateTrackingChat } from "../chatAccess.js";
 
 export type ActivityFilter = "all" | "send" | "swap" | "bridge";
 
@@ -94,15 +95,20 @@ export function registerActivityCommand(bot: Bot<BotContext>, dependencies: BotD
     }
   }
 
-  bot.command("activity", (ctx) => showActivityMenu(ctx, false));
+  bot.command("activity", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
+    await showActivityMenu(ctx, false);
+  });
 
   bot.callbackQuery("menu:activity", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     await showActivityMenu(ctx, true);
   });
 
   bot.callbackQuery(/^activity:([0-9a-f-]{36})(?::(all|send|swap|bridge))?$/i, async (ctx) => {
     if (!ctx.from) return;
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const subscriptionId = ctx.match[1];
     if (!subscriptionId) return;

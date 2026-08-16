@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ResolvedCollection } from "../../types/index.js";
+import { safeDisplayText } from "../../utils/display.js";
 import { assertDatabaseResult } from "../client.js";
 
 export interface CollectionRow {
@@ -20,7 +21,7 @@ export class CollectionsRepository {
       .upsert(
         {
           opensea_slug: collection.slug,
-          name: collection.name,
+          name: safeDisplayText(collection.name, 300, collection.slug),
           chain: collection.chain,
           chain_id: collection.chainId,
           contract_address: collection.contractAddress,

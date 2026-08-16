@@ -7,6 +7,7 @@ import type {
 import { getCollectionInfo } from "../../opensea/collectionInfo.js";
 import { compactDecimal, formatTokenWithUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
+import { requirePrivateTrackingChat } from "../chatAccess.js";
 import { replyWithError } from "../helpers.js";
 import { editMessageSafely, homeKeyboard } from "../ui.js";
 
@@ -286,15 +287,13 @@ export function registerNftPriceAlertCommands(
   });
 
   bot.callbackQuery("menu:price-alert-add", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     await requestCollection(ctx);
   });
 
   bot.callbackQuery("menu:price-alerts", async (ctx) => {
-    if (!privateChatOnly(ctx)) {
-      await ctx.answerCallbackQuery({ text: "Open a private chat to manage personal alerts.", show_alert: true });
-      return;
-    }
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const alerts = await loadAlerts(ctx, dependencies);
     await editMessageSafely(ctx, formatNftPriceAlerts(alerts), alertListKeyboard(alerts));
@@ -308,7 +307,7 @@ export function registerNftPriceAlertCommands(
   };
 
   bot.callbackQuery(/^price-alert:manage:([0-9a-f-]{36})$/, async (ctx) => {
-    if (!privateChatOnly(ctx)) return;
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const alert = await loadOwnedAlert(ctx, ctx.match[1]!);
     if (!alert) {
@@ -320,7 +319,7 @@ export function registerNftPriceAlertCommands(
   });
 
   bot.callbackQuery(/^price-alert:cancel:([0-9a-f-]{36})$/, async (ctx) => {
-    if (!privateChatOnly(ctx)) return;
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const alert = await loadOwnedAlert(ctx, ctx.match[1]!);
     if (!alert || alert.status !== "active") {
@@ -332,7 +331,7 @@ export function registerNftPriceAlertCommands(
   });
 
   bot.callbackQuery(/^price-alert:confirm-cancel:([0-9a-f-]{36})$/, async (ctx) => {
-    if (!ctx.from || !privateChatOnly(ctx)) return;
+    if (!ctx.from || !await requirePrivateTrackingChat(ctx)) return;
     const user = await dependencies.repositories.users.ensure(ctx.from.id);
     const cancelled = await dependencies.repositories.nftPriceAlerts.cancel(user.id, ctx.match[1]!);
     await ctx.answerCallbackQuery({ text: cancelled ? "Price alert cancelled" : "Alert already expired or cancelled" });
@@ -342,6 +341,7 @@ export function registerNftPriceAlertCommands(
 
   bot.on("message:text", async (ctx, next) => {
     if (ctx.message.text.startsWith("/")) return next();
+    if (!privateChatOnly(ctx)) return next();
     if (ctx.message.reply_to_message?.text === PRICE_ALERT_COLLECTION_PROMPT) {
       await requestTarget(ctx, dependencies, ctx.message.text);
       return;

@@ -1,9 +1,10 @@
 import type { AppEnv } from "../config/env.js";
 import type { ResolvedCollection } from "../types/index.js";
 import { normalizeAddress } from "../utils/address.js";
+import { safeDisplayText } from "../utils/display.js";
 import { ExternalServiceError, UserFacingError } from "../utils/errors.js";
 import { resolveChainIdentifier } from "../blockchain/chains.js";
-import { parseOpenSeaUrl } from "./parseOpenSeaUrl.js";
+import { isOpenSeaSlug, parseOpenSeaUrl } from "./parseOpenSeaUrl.js";
 
 interface OpenSeaContract {
   address: string;
@@ -24,7 +25,10 @@ export async function resolveOpenSeaCollection(
   const slug = parseOpenSeaUrl(url);
   const response = await fetcher(
     `https://api.opensea.io/api/v2/collections/${encodeURIComponent(slug)}`,
-    { headers: { accept: "application/json", "x-api-key": env.OPENSEA_API_KEY } },
+    {
+      headers: { accept: "application/json", "x-api-key": env.OPENSEA_API_KEY },
+      signal: AbortSignal.timeout(15_000),
+    },
   );
 
   if (response.status === 404) {
@@ -41,13 +45,14 @@ export async function resolveOpenSeaCollection(
   if (!data.name || !Array.isArray(data.contracts) || data.contracts.length === 0) {
     throw new ExternalServiceError("OpenSea returned an incomplete collection response", "opensea", false);
   }
+  const collectionName = safeDisplayText(data.name, 300, "Unnamed collection");
 
   for (const contract of data.contracts) {
     try {
       const chain = resolveChainIdentifier(contract.chain, env);
       return {
-        name: data.name,
-        slug: data.collection ?? slug,
+        name: collectionName,
+        slug: data.collection && isOpenSeaSlug(data.collection) ? data.collection.toLowerCase() : slug,
         chain: chain.key,
         chainId: chain.chainId,
         contractAddress: normalizeAddress(contract.address),
@@ -57,7 +62,7 @@ export async function resolveOpenSeaCollection(
     }
   }
 
-  const available = data.contracts.map((contract) => contract.chain).join(", ");
+  const available = safeDisplayText(data.contracts.map((contract) => contract.chain).join(", "), 200);
   throw new UserFacingError(
     `This collection has no contract on a supported chain. Found: ${available}.`,
     "UNSUPPORTED_CHAIN",

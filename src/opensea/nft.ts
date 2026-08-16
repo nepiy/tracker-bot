@@ -1,5 +1,6 @@
 import type { Address } from "viem";
 import { ExternalServiceError } from "../utils/errors.js";
+import { safeDisplayText } from "../utils/display.js";
 
 const OPEN_SEA_API = "https://api.opensea.io/api/v2";
 
@@ -56,7 +57,7 @@ export async function getOpenSeaNftSummary(
   }
 
   const body = await response.json() as OpenSeaNftResponse;
-  const name = body.nft?.name?.trim() || `NFT #${tokenId}`;
+  const name = safeDisplayText(body.nft?.name, 300, `NFT #${tokenId}`);
   const openSeaUrl = canonicalOpenSeaUrl(body.nft?.opensea_url)
     ?? openSeaAssetUrl(chain, contract, tokenId);
   return { name, openSeaUrl };

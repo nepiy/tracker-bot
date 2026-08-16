@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
+import { safeDisplayText } from "../../utils/display.js";
 import { assertDatabaseResult } from "../client.js";
 
 export type NftPriceAlertDirection = "at_or_below" | "at_or_above";
@@ -85,13 +86,13 @@ function toView(row: NftPriceAlertRow): NftPriceAlertView {
     id: String(row.id),
     userId: String(row.user_id),
     slug: String(row.opensea_slug),
-    collectionName: String(row.collection_name),
+    collectionName: safeDisplayText(String(row.collection_name), 300, String(row.opensea_slug)),
     chain: String(row.chain),
     contractAddress: String(row.contract_address),
     targetPrice: String(row.target_price),
     initialFloorPrice: String(row.initial_floor_price),
     lastFloorPrice: row.last_floor_price === null ? null : String(row.last_floor_price),
-    currencySymbol: String(row.currency_symbol),
+    currencySymbol: safeDisplayText(String(row.currency_symbol), 20, "TOKEN"),
     currencyAddress: row.currency_address === null ? null : String(row.currency_address),
     usdRate: row.last_usd_rate === null ? null : String(row.last_usd_rate),
     direction: row.direction,

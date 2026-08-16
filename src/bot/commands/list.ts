@@ -3,6 +3,7 @@ import type { SubscriptionView } from "../../database/repositories/subscriptions
 import type { BotContext, BotDependencies } from "../context.js";
 import { shortAddress } from "../../utils/address.js";
 import { chainLabel, editMessageSafely, explorerAddressUrl } from "../ui.js";
+import { requirePrivateTrackingChat } from "../chatAccess.js";
 
 export function formatTrackedCollections(subscriptions: SubscriptionView[]): string {
   if (!subscriptions.length) {
@@ -80,14 +81,19 @@ async function showList(ctx: BotContext, dependencies: BotDependencies, edit: bo
 }
 
 export function registerListCommand(bot: Bot<BotContext>, dependencies: BotDependencies): void {
-  bot.command("list", (ctx) => showList(ctx, dependencies, false));
+  bot.command("list", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
+    await showList(ctx, dependencies, false);
+  });
 
   bot.callbackQuery("menu:list", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     await showList(ctx, dependencies, true);
   });
 
   bot.callbackQuery(/^list:([0-9a-f-]{36})$/i, async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const subscriptionId = ctx.match[1];
     if (!subscriptionId) return;

@@ -3,11 +3,18 @@ import type { AppEnv } from "./env.js";
 import { normalizeAddress } from "../utils/address.js";
 import type { ChainConfig } from "../types/index.js";
 
+const httpEndpoint = z.url().refine((value) => {
+  const url = new URL(value);
+  return (url.protocol === "https:" || url.protocol === "http:")
+    && !url.username
+    && !url.password;
+}, "Must be an HTTP(S) URL without embedded username/password credentials");
+
 const extraChainSchema = z.object({
   chainId: z.number().int().positive(),
   name: z.string().min(1).max(100),
-  rpcUrl: z.url(),
-  explorerUrl: z.url(),
+  rpcUrl: httpEndpoint,
+  explorerUrl: httpEndpoint,
   nativeSymbol: z.string().min(1).max(12),
 });
 
@@ -30,6 +37,13 @@ export function getExtraMonitoringChains(env: AppEnv): ChainConfig[] {
   const seen = new Set<number>();
   return entries.map((entry) => {
     if (seen.has(entry.chainId)) throw new Error(`Duplicate monitoring chain ID: ${entry.chainId}`);
+    if (env.NODE_ENV === "production") {
+      for (const [field, value] of [["rpcUrl", entry.rpcUrl], ["explorerUrl", entry.explorerUrl]] as const) {
+        if (new URL(value).protocol !== "https:") {
+          throw new Error(`MONITORING_CHAINS_JSON ${field} must use HTTPS in production`);
+        }
+      }
+    }
     seen.add(entry.chainId);
     return {
       key: `monitor-${entry.chainId}`,

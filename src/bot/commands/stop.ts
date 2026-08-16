@@ -2,6 +2,7 @@ import { InlineKeyboard, type Bot } from "grammy";
 import type { BotContext, BotDependencies } from "../context.js";
 import type { SubscriptionView } from "../../database/repositories/subscriptions.js";
 import { editMessageSafely } from "../ui.js";
+import { requirePrivateTrackingChat } from "../chatAccess.js";
 
 function stopKeyboard(subscriptions: SubscriptionView[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
@@ -33,15 +34,20 @@ async function showStopMenu(ctx: BotContext, dependencies: BotDependencies, edit
 }
 
 export function registerStopCommand(bot: Bot<BotContext>, dependencies: BotDependencies): void {
-  bot.command("stop", (ctx) => showStopMenu(ctx, dependencies, false));
+  bot.command("stop", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
+    await showStopMenu(ctx, dependencies, false);
+  });
 
   bot.callbackQuery("menu:stop", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     await showStopMenu(ctx, dependencies, true);
   });
 
   bot.callbackQuery(/^stop:([0-9a-f-]{36})$/i, async (ctx) => {
     if (!ctx.from) return;
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const subscriptionId = ctx.match[1];
     if (!subscriptionId) return;

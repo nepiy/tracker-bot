@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { safeErrorMessage } from "../../utils/sanitize.js";
 import { assertDatabaseResult } from "../client.js";
 
 export interface TelegramOutboxInsert {
@@ -113,14 +114,14 @@ export class TelegramOutboxRepository {
   }
 
   async release(id: string, error: unknown, nextAttemptAt: Date): Promise<void> {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = safeErrorMessage(error);
     const { data, error: databaseError } = await this.db
       .from("telegram_notification_outbox")
       .update({
         status: "pending",
         claimed_at: null,
         next_attempt_at: nextAttemptAt.toISOString(),
-        last_error: message.slice(0, 1_000),
+        last_error: message,
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)

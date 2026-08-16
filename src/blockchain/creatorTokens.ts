@@ -2,6 +2,7 @@ import { parseAbi, type Address } from "viem";
 import type { ChainClient } from "./clients.js";
 import type { ExplorerAdapter, ExplorerCreatedContract } from "../explorers/types.js";
 import type { ChainConfig } from "../types/index.js";
+import { safeDisplayText } from "../utils/display.js";
 
 const erc20MetadataAbi = parseAbi([
   "function name() view returns (string)",
@@ -65,8 +66,8 @@ async function readErc20Candidate(
       client.readContract({ address: deployment.address, abi: erc20MetadataAbi, functionName: "decimals" }),
       client.readContract({ address: deployment.address, abi: erc20MetadataAbi, functionName: "totalSupply" }),
     ]);
-    const cleanName = name.trim();
-    const cleanSymbol = symbol.trim();
+    const cleanName = safeDisplayText(name, 200, "");
+    const cleanSymbol = safeDisplayText(symbol, 32, "");
     if (!cleanName || !cleanSymbol || decimals > 255 || totalSupply < 0n) return null;
     return { deployment, name: cleanName, symbol: cleanSymbol };
   } catch {
@@ -102,6 +103,20 @@ function finiteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+export function canonicalDexScreenerUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:" || (host !== "dexscreener.com" && host !== "www.dexscreener.com")) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 async function loadDexPairs(
   chainKey: string,
   candidates: Erc20Candidate[],
@@ -127,7 +142,8 @@ async function loadDexPairs(
     }
     for (const candidate of batch) {
       const pair = bestPairForToken(pairs, candidate.deployment.address);
-      if (pair?.url) pairsByToken.set(candidate.deployment.address, pair);
+      const marketUrl = canonicalDexScreenerUrl(pair?.url);
+      if (pair && marketUrl) pairsByToken.set(candidate.deployment.address, { ...pair, url: marketUrl });
     }
   }
   return { pairs: pairsByToken, complete };

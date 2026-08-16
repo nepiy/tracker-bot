@@ -1,4 +1,6 @@
 import { ExternalServiceError } from "../utils/errors.js";
+import { safeDisplayText } from "../utils/display.js";
+import { isOpenSeaSlug, openSeaCollectionUrl } from "./parseOpenSeaUrl.js";
 
 const OPEN_SEA_API = "https://api.opensea.io/api/v2";
 const MAX_DROP_PAGES = 10;
@@ -132,16 +134,23 @@ function stageToMint(
 ): UpcomingMintStage | null {
   const slug = summary.collection_slug;
   const startsAt = parseDate(stage.start_time);
-  if (!slug || !stage.uuid || !startsAt || !isValidMintStage(stage)) return null;
+  if (
+    !slug
+    || !isOpenSeaSlug(slug)
+    || !stage.uuid
+    || !/^[A-Za-z0-9._:-]{1,200}$/.test(stage.uuid)
+    || !startsAt
+    || !isValidMintStage(stage)
+  ) return null;
   if (!summary.chain || !SUPPORTED_DROP_CHAINS.has(summary.chain.toLowerCase())) return null;
   return {
-    slug,
-    name: summary.collection_name ?? slug,
+    slug: slug.toLowerCase(),
+    name: safeDisplayText(summary.collection_name, 300, slug),
     chain: summary.chain ?? "unknown",
-    openSeaUrl: summary.opensea_url ?? `https://opensea.io/collection/${slug}`,
+    openSeaUrl: openSeaCollectionUrl(slug),
     stageId: stage.uuid,
-    stageType: stage.stage_type ?? "unknown",
-    stageLabel: stage.label?.trim() || "Mint stage",
+    stageType: safeDisplayText(stage.stage_type, 100, "unknown"),
+    stageLabel: safeDisplayText(stage.label, 200, "Mint stage"),
     price: stage.price!,
     currencyAddress: stage.price_currency_address!.toLowerCase(),
     startsAt,
@@ -289,7 +298,6 @@ export async function findUpcomingMintStages(
       const enrichedSummary: OpenSeaDropSummaryResponse = { ...summary, collection_slug: slug };
       if (detail.collection_name) enrichedSummary.collection_name = detail.collection_name;
       if (detail.chain) enrichedSummary.chain = detail.chain;
-      if (detail.opensea_url) enrichedSummary.opensea_url = detail.opensea_url;
       const mint = stageToMint(enrichedSummary, stage);
       if (!mint) continue;
       unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
@@ -325,7 +333,7 @@ export async function getOpenSeaTokenDetails(
   }
   const usdPrice = token.usd_price ?? token.usdPrice;
   return {
-    symbol: token.symbol,
+    symbol: safeDisplayText(token.symbol, 20, "TOKEN"),
     decimals: token.decimals!,
     usdPrice: typeof usdPrice === "string" && usdPrice ? usdPrice : null,
   };

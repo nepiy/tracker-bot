@@ -18,6 +18,7 @@ import { formatTokenWithUsd } from "../utils/price.js";
 import type { TelegramOutboxRepository } from "../database/repositories/telegramOutbox.js";
 import { getOpenSeaTokenDetails } from "../opensea/upcomingDrops.js";
 import { logger } from "../config/logger.js";
+import { safeDisplayText } from "../utils/display.js";
 import {
   getOpenSeaNftSummary,
   openSeaAssetUrl,
@@ -223,7 +224,7 @@ export function formatMarketplaceAlert(activity: MarketplaceNotification, env: A
       ? "🔴 SELL"
       : "🟣 NFT MINTED";
   const openSeaChain = chain.openSeaIdentifiers[0] ?? chain.key;
-  const nftName = activity.nftName?.trim() || `NFT #${activity.tokenId}`;
+  const nftName = safeDisplayText(activity.nftName, 300, `NFT #${activity.tokenId}`);
   const openSeaUrl = activity.openSeaUrl ?? openSeaAssetUrl(openSeaChain, activity.nftContract, activity.tokenId);
   return [
     "🛍 WALLET MARKETPLACE ACTIVITY",

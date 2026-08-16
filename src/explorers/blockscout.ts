@@ -41,7 +41,7 @@ export class BlockscoutExplorer implements ExplorerAdapter {
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
     const response = await this.fetcher(
       `${this.chain.explorerApiUrl}/api/v2/addresses/${address}`,
-      { headers },
+      { headers, signal: AbortSignal.timeout(15_000) },
     );
     if (!response.ok) {
       throw new ExternalServiceError(

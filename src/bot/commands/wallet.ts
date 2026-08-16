@@ -5,6 +5,7 @@ import type { WalletSubscriptionView } from "../../database/repositories/walletS
 import { normalizeAddress, shortAddress } from "../../utils/address.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { chainLabel, editMessageSafely, homeKeyboard } from "../ui.js";
+import { requirePrivateTrackingChat } from "../chatAccess.js";
 
 export const WALLET_PROMPT = [
   "👛 Track a wallet",
@@ -88,22 +89,26 @@ async function loadWallets(ctx: BotContext, dependencies: BotDependencies): Prom
 
 export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDependencies): void {
   bot.command("wallet", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     const address = String(ctx.match ?? "").trim();
     if (address) await chooseNetworks(ctx, address);
     else await requestWalletAddress(ctx);
   });
 
   bot.command("wallets", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     const items = await loadWallets(ctx, dependencies);
     await ctx.reply(formatWalletSubscriptions(items), { reply_markup: walletListKeyboard(items) });
   });
 
   bot.callbackQuery("menu:wallet-track", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     await requestWalletAddress(ctx);
   });
 
   bot.callbackQuery("menu:wallets", async (ctx) => {
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery();
     const items = await loadWallets(ctx, dependencies);
     await editMessageSafely(ctx, formatWalletSubscriptions(items), walletListKeyboard(items));
@@ -111,6 +116,7 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
 
   bot.callbackQuery(/^wallet:add:(all|\d+):(0x[0-9a-fA-F]{40})$/, async (ctx) => {
     if (!ctx.from) return;
+    if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery({ text: "Enabling wallet alerts…" });
     const selection = ctx.match[1]!;
     const address = normalizeAddress(ctx.match[2]!);
@@ -146,6 +152,7 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
 
   bot.callbackQuery(/^wallet:stop:([0-9a-f-]{36})$/, async (ctx) => {
     if (!ctx.from) return;
+    if (!await requirePrivateTrackingChat(ctx)) return;
     const user = await dependencies.repositories.users.ensure(ctx.from.id);
     const stopped = await dependencies.repositories.walletSubscriptions.deactivate(user.id, ctx.match[1]!);
     await ctx.answerCallbackQuery({ text: stopped ? "Wallet tracking stopped" : "Already stopped" });
@@ -155,6 +162,7 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
 
   bot.on("message:text", async (ctx, next) => {
     if (ctx.message.text.startsWith("/")) return next();
+    if (ctx.chat.type !== "private") return next();
     if (ctx.message.reply_to_message?.text !== WALLET_PROMPT && !isAddress(ctx.message.text.trim(), { strict: false })) return next();
     await chooseNetworks(ctx, ctx.message.text);
   });

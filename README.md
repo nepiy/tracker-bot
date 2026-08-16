@@ -41,7 +41,8 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Robinhood RPC failover to the public chain endpoint when the configured provider is unavailable or throttled
 - Live-priority newest-block scanning so a historical backlog cannot delay current wallet alerts
 - Durable Telegram notification outbox with stale-claim recovery and exponential delivery retries
-- Per-user rate limiting and structured error logging
+- Bounded per-user/global rate limiting, concurrent-handler limits, and structured error logging with URL, credential, and Telegram-identifier redaction
+- Private-chat enforcement for personal collections, wallets, activity, settings, and floor-alert dashboards
 - GitHub Actions validation on pushes to `main` and pull requests
 
 ## What it does
@@ -203,7 +204,7 @@ It does not scrape OpenSea HTML.
 ## Supabase setup
 
 1. Create a Supabase project.
-2. Copy the project API URL and service-role/secret key into `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+2. Copy the project API URL and a modern backend secret key into `SUPABASE_URL` and `SUPABASE_SECRET_KEY`. The legacy `SUPABASE_SERVICE_ROLE_KEY` remains supported while migrating keys.
 
    The URL must use the project API origin:
 
@@ -224,7 +225,7 @@ It does not scrape OpenSea HTML.
 
 Alternatively, run the SQL migration in the Supabase SQL editor.
 
-Every application table has RLS enabled. `anon` and `authenticated` have no table grants or policies because both processes are trusted backend services using the service-role key. Never expose that key to a browser or Telegram user.
+Every application table has RLS enabled. `anon` and `authenticated` have no table grants or policies because both processes are trusted backend services using a backend secret key. Default privileges also keep future tables, sequences, and functions private until a migration explicitly grants backend access. Never expose a backend key to a browser or Telegram user.
 
 The schema contains:
 
@@ -262,7 +263,7 @@ Required:
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | BotFather token used by both processes |
 | `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Backend-only database key |
+| `SUPABASE_SECRET_KEY` | Recommended modern backend-only Supabase secret (`sb_secret_...`) |
 | `OPENSEA_API_KEY` | OpenSea v2 API key |
 | `ETHEREUM_RPC_URL` | Ethereum JSON-RPC endpoint |
 | `ROBINHOOD_RPC_URL` | Robinhood Chain JSON-RPC endpoint |
@@ -273,6 +274,7 @@ Optional:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `BLOCKSCOUT_API_KEY` | unset | Bearer token for a protected Blockscout instance |
+| `SUPABASE_SERVICE_ROLE_KEY` | unset | Legacy backend-key fallback; use `SUPABASE_SECRET_KEY` for new deployments |
 | `MONITORING_CHAINS_JSON` | `[]` | Additional EVM RPC/explorer definitions used only for cross-chain wallet monitoring |
 | `CEX_ADDRESSES_JSON` | `[]` | Verified, chain-specific CEX deposit/hot-wallet labels used for high-risk alerts |
 | `WATCHER_POLL_INTERVAL_MS` | `12000` | Delay after a successful chain scan |
@@ -290,9 +292,11 @@ Optional:
 | `FREE_MINT_POLL_INTERVAL_MS` | `600000` | Opt-in OpenSea upcoming-drop scan interval; minimum 60 seconds |
 | `PRICE_ALERT_POLL_INTERVAL_MS` | `60000` | Active NFT floor-target scan interval; minimum 30 seconds |
 | `TELEGRAM_RATE_LIMIT_PER_MINUTE` | `8` | Per-user request limit per process |
+| `TELEGRAM_GLOBAL_RATE_LIMIT_PER_MINUTE` | `240` | Bot-wide accepted-update ceiling that limits multi-account API bursts |
+| `TELEGRAM_MAX_CONCURRENT_UPDATES` | `20` | Maximum Telegram updates executing handlers concurrently |
 | `LOG_LEVEL` | `info` | Pino structured-log level |
 
-Environment values are validated at startup. Secrets are redacted from structured logs.
+Environment values are validated at startup. Production database, RPC, and explorer endpoints must use HTTPS and cannot contain HTTP username/password credentials. Credential-bearing URLs, authorization values, Telegram IDs, and known token formats are redacted from structured logs and persisted delivery errors.
 
 ### Additional monitoring chains
 
@@ -522,7 +526,24 @@ The workflow has read-only repository permissions, npm dependency caching, a 10-
 
 The real `.env` file is ignored by Git and must never be committed. `.env.example` contains variable names and safe defaults only. Store production credentials in the deployment platform's environment-variable or secrets interface.
 
-Treat `TELEGRAM_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENSEA_API_KEY`, RPC URLs containing provider credentials, and explorer API keys as secrets. Rotate a credential immediately if it is ever committed or printed in a public log.
+Treat `TELEGRAM_BOT_TOKEN`, `SUPABASE_SECRET_KEY`, the legacy `SUPABASE_SERVICE_ROLE_KEY`, `OPENSEA_API_KEY`, RPC URLs containing provider credentials, and explorer API keys as secrets. Rotate a credential immediately if it is ever committed or printed in a public log. GitHub Actions are pinned to immutable commit SHAs and run with read-only repository permissions.
+
+## Security and privacy model
+
+- The bot and watcher are backend-only processes. They do not expose an HTTP listener or accept inbound webhooks.
+- Supabase is accessed only with a backend secret. All application tables use RLS, `anon` and `authenticated` have no table grants, and future public-schema objects default to no client access.
+- Personal collection, wallet, activity, settings, active-tracking, and floor-alert management is restricted to a private Telegram chat. Group collection tracking has a separate path and rechecks the acting member's administrator status through Telegram.
+- OpenSea slugs, contract addresses, and clickable OpenSea/DEX links are validated or constructed from canonical allowlisted hosts. External API and on-chain labels are flattened, length-limited, and stripped of embedded URLs and directional controls before display.
+- Logs remove credential-bearing URLs, authorization values, known secret formats, and Telegram/chat identifiers. Failed Telegram delivery details are sanitized before being stored in Supabase.
+- Stored data includes Telegram numeric IDs, public wallet/contract addresses, public transaction hashes and activity, tracking preferences, and queued Telegram message text. Delivered outbox rows are pruned after 30 days; active user and tracking records remain until they are removed from the database.
+
+After pulling a migration that changes `supabase/migrations`, apply it before or alongside the matching application deployment:
+
+```bash
+npx supabase db push --linked
+```
+
+Railway deploys the Node.js services but does not automatically run Supabase migrations unless you explicitly configure a migration step.
 
 ## External API references
 

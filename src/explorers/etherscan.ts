@@ -49,6 +49,7 @@ export class EtherscanExplorer implements ExplorerAdapter {
     });
     const response = await this.fetcher(`${this.chain.explorerApiUrl}?${query.toString()}`, {
       headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
       throw new ExternalServiceError(

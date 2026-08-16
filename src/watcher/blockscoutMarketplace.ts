@@ -134,6 +134,13 @@ export class BlockscoutMarketplaceReconciler {
     now = Date.now(),
   ): Promise<void> {
     const apiUrl = blockscoutApiUrl(chain);
+    const activeKeys = new Set(watchedWallets.map((wallet) => `${chain.chainId}:${wallet.id}`));
+    const chainPrefix = `${chain.chainId}:`;
+    for (const stateKey of this.processedByWallet.keys()) {
+      if (stateKey.startsWith(chainPrefix) && !activeKeys.has(stateKey)) {
+        this.processedByWallet.delete(stateKey);
+      }
+    }
     if (!apiUrl || watchedWallets.length === 0) return;
     const cutoff = now - REPLAY_WINDOW_MS;
     for (const wallet of watchedWallets) {
@@ -157,12 +164,13 @@ export class BlockscoutMarketplaceReconciler {
     const candidateHashes = await this.listRecentNftTransactions(apiUrl, wallet.address, cutoff);
     const stateKey = `${chain.chainId}:${wallet.id}`;
     const processed = this.processedByWallet.get(stateKey) ?? new Set<string>();
+    const retained = new Set([...processed].filter((hash) => candidateHashes.has(hash)));
     const pending = [...candidateHashes].filter((hash) => !processed.has(hash));
     await mapWithConcurrency(pending, TRANSACTION_CONCURRENCY, async (hash) => {
       try {
         const transaction = await this.getTransaction(apiUrl, hash as Hash);
         await this.processTransaction(chain, wallet, transaction);
-        processed.add(hash);
+        retained.add(hash);
       } catch (error) {
         logger.warn(
           { err: error, chainId: chain.chainId, wallet: wallet.address, txHash: hash },
@@ -170,13 +178,14 @@ export class BlockscoutMarketplaceReconciler {
         );
       }
     });
-    this.processedByWallet.set(stateKey, processed);
+    this.processedByWallet.set(stateKey, retained);
     logger.debug(
       {
         chainId: chain.chainId,
         wallet: wallet.address,
         candidates: candidateHashes.size,
-        processed: pending.length,
+        attempted: pending.length,
+        retained: retained.size,
       },
       "Blockscout marketplace reconciliation completed",
     );
