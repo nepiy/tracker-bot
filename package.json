@@ -19,6 +19,7 @@
     "start:watcher": "node dist/watcher/run.js"
   },
   "dependencies": {
+    "@opensea/sdk": "^11.9.0",
     "@supabase/supabase-js": "2.112.2",
     "dotenv": "17.2.3",
     "grammy": "1.45.1",

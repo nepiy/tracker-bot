@@ -4,11 +4,13 @@ import { createDatabaseClient } from "../database/client.js";
 import { createRepositories } from "../database/repositories/index.js";
 import { TrackingService } from "../services/tracking.js";
 import { createTelegramBot } from "./bot.js";
+import { EligibilityService } from "../services/eligibility.js";
 
 const env = getEnv();
 const repositories = createRepositories(createDatabaseClient(env));
 const tracking = new TrackingService(env, repositories);
-const bot = createTelegramBot({ env, repositories, tracking });
+const eligibility = new EligibilityService(env);
+const bot = createTelegramBot({ env, repositories, tracking, eligibility });
 
 process.once("SIGINT", () => bot.stop());
 process.once("SIGTERM", () => bot.stop());

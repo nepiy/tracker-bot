@@ -17,6 +17,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Fresh OpenSea free-mint browser with separate paginated **Upcoming** and **Live now** views
 - Personal **Active Tracking** overview combining collections, wallets, floor targets, and free-mint status
 - Read-only collection research from an OpenSea URL or Ethereum/Robinhood NFT contract
+- OpenSea wallet eligibility checks that verify the submitted wallet through the official OAuth device flow and show only eligible non-public mint stages
 - Collection owner, live mint-or-floor details with approximate USD conversion, top offer, 24-hour volume, and floor-price change reporting
 - Up to five additional OpenSea collections attributed to the same owner profile, omitted when none exist
 - Cross-chain creator-token history for deployer-created ERC-20 contracts with detected DEX markets, omitted when none exist
@@ -74,6 +75,8 @@ Users can also tap **Free Mints** or run `/freemints` without enabling automatic
 
 For direct wallet tracking, tap **Add Wallet**, paste any valid EVM address, and select Ethereum, Robinhood Chain, or both. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
+For allowlist discovery, tap **Eligibility** or run `/eligibility`. Send the wallet address you want to check. The bot opens OpenSea's official device sign-in flow and requests only the `read:eligibility` scope. Open the supplied OpenSea link, enter the one-time code, and sign in with the same wallet. The bot compares the wallet claim in OpenSea's token with the submitted address before querying any eligibility data. Results include only currently active or next-24-hour allowlist, GTD, FCFS, presale, whitelist, reserved, signed, or other non-public stages; a public-mint-only match is never shown. Tokens are held in memory only for the short check and revoked after the result is returned. Never enter a seed phrase or private key anywhere.
+
 To review everything currently enabled for your account, tap **Active Tracking** on the front page or run `/active`. This consolidated dashboard shows active collection dev-wallet monitoring, direct wallets grouped across their selected networks, one-time floor targets and their status, and whether optional free-mint alerts are enabled. Its buttons open each management page directly. Long sections show the first eight items plus the full active count, keeping the Telegram message within its size limit; open the corresponding management page to see every item. Group subscriptions remain managed inside each Telegram group by its admins.
 
 Incoming transactions do not alert. A transaction only qualifies when its top-level `from` address equals a currently watched address. The separate watcher process must be running for automatic detection and notifications.
@@ -94,6 +97,12 @@ Telegram bot process
           ├─ viem RPC client
           └─ dev-wallet analyzer
               └─ Supabase repositories
+
+  └─ OpenSea eligibility command
+      ├─ OAuth device authorization (read:eligibility only)
+      ├─ wallet-claim/address match
+      ├─ bounded active/upcoming drop discovery
+      └─ non-public stage filtering + one-time token revocation
 
 Watcher process (one runner per chain)
   └─ deduplicated active collection + direct wallet subscriptions
@@ -151,6 +160,8 @@ Important source areas:
 - Production RPC endpoints for Ethereum and Robinhood Chain
 - An Etherscan API key is recommended for Ethereum contract-creation lookups
 
+No OpenSea OAuth secret or private key is required. The bot uses OpenSea's public OAuth client and a short-lived device code. Each user must approve the read-only sign-in on OpenSea when running `/eligibility`.
+
 The public Robinhood RPC in `.env.example` is rate-limited. Use a production provider for deployment.
 
 ## Telegram BotFather setup
@@ -172,6 +183,7 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    activity - View sends, swaps, and bridges
    wallet - Track a wallet's NFT mints and marketplace buys/sells
    wallets - List or stop tracked wallets
+   eligibility - Check a wallet's OpenSea allowlist eligibility
    grouptrack - Track a collection in this group (admins only)
    grouplist - List or stop this group's collection alerts (admins only)
    settings - Customize personal notification preferences
@@ -195,6 +207,7 @@ GET https://api.opensea.io/api/v2/accounts/resolve/{owner}
 GET https://api.opensea.io/api/v2/collections?creator_username={username}
 GET https://api.opensea.io/api/v2/drops?type=upcoming
 GET https://api.opensea.io/api/v2/drops/{slug}
+GET https://api.opensea.io/api/v2/drops/{slug}/eligibility
 GET https://api.opensea.io/api/v2/chain/{chain}/token/{address}
 X-API-KEY: ...
 ```
@@ -273,6 +286,7 @@ Optional:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `OPENSEA_OAUTH_CLIENT_ID` | `379893200225068569` | Public OpenSea OAuth client used by the read-only wallet eligibility flow |
 | `BLOCKSCOUT_API_KEY` | unset | Bearer token for a protected Blockscout instance |
 | `SUPABASE_SERVICE_ROLE_KEY` | unset | Legacy backend-key fallback; use `SUPABASE_SECRET_KEY` for new deployments |
 | `MONITORING_CHAINS_JSON` | `[]` | Additional EVM RPC/explorer definitions used only for cross-chain wallet monitoring |
