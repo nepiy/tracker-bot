@@ -5,8 +5,7 @@ import { isOpenSeaSlug, openSeaCollectionUrl } from "./parseOpenSeaUrl.js";
 const OPEN_SEA_API = "https://api.opensea.io/api/v2";
 const MAX_DROP_PAGES = 10;
 const DROP_PAGE_SIZE = 100;
-const SUPPORTED_DROP_CHAINS = new Set(["ethereum", "eth", "robinhood", "robinhood_chain", "robinhood-chain"]);
-const DROP_CALENDAR_CHAINS = "ethereum,robinhood";
+const FEATURED_FALLBACK_MAX_DROPS = 50;
 
 interface OpenSeaDropStageResponse {
   uuid?: string;
@@ -123,7 +122,7 @@ function isTrackableMintStage(stage: OpenSeaDropStageResponse): boolean {
 function isValidMintStage(stage: OpenSeaDropStageResponse): boolean {
   return isTrackableMintStage(stage)
     && typeof stage.price === "string"
-    && /^\d+$/.test(stage.price)
+    && /^\d+$/.test(stage.price.trim())
     && typeof stage.price_currency_address === "string"
     && /^0x[0-9a-fA-F]{40}$/.test(stage.price_currency_address);
 }
@@ -142,7 +141,6 @@ function stageToMint(
     || !startsAt
     || !isValidMintStage(stage)
   ) return null;
-  if (!summary.chain || !SUPPORTED_DROP_CHAINS.has(summary.chain.toLowerCase())) return null;
   return {
     slug: slug.toLowerCase(),
     name: safeDisplayText(summary.collection_name, 300, slug),
@@ -169,7 +167,6 @@ async function fetchDropCalendar(
     const query = new URLSearchParams({
       type,
       limit: String(DROP_PAGE_SIZE),
-      chains: DROP_CALENDAR_CHAINS,
     });
     if (cursor) query.set("cursor", cursor);
     const response = await fetchOpenSeaJson<OpenSeaDropsResponse>(`/drops?${query}`, apiKey, fetcher);
@@ -184,8 +181,9 @@ async function fetchDropCalendar(
 
 /**
  * Reads a fresh snapshot of public, GTD, and FCFS zero-price stages from OpenSea's drop calendar.
- * Upcoming uses the calendar's next stage; live combines all calendar categories and
- * requires OpenSea to report that the stage is currently minting and has supply remaining.
+ * Upcoming uses the calendar's next stage and falls back to detailed stages from featured drops
+ * when OpenSea's upcoming page is empty or omits the next stage. Live combines all calendar
+ * categories and requires OpenSea to report that the stage is currently minting and has supply remaining.
  */
 export async function findFreeMintDirectory(
   apiKey: string,
@@ -199,19 +197,71 @@ export async function findFreeMintDirectory(
   const pages = await Promise.all(calendarTypes.map((type) => fetchDropCalendar(apiKey, type, fetcher)));
   const unique = new Map<string, UpcomingFreeMint>();
   const liveCandidates = new Map<string, UpcomingFreeMint>();
+  const upcomingDetailCandidates = new Map<string, OpenSeaDropSummaryResponse>();
 
   for (const summary of pages.flat()) {
     const stage = view === "upcoming" ? summary.next_stage : summary.active_stage;
     const mint = stage ? stageToMint(summary, stage) : null;
+    const isUpcoming = Boolean(mint && mint.startsAt > now);
+    if (view === "upcoming") {
+      // OpenSea's calendar summary can omit next_stage for drops that are still
+      // featured, even though the detailed drop contains future stages. Keep a
+      // bounded fallback set so those newly listed mints are not lost.
+      if (
+        summary.collection_slug
+        && ((
+          !summary.next_stage
+          && summary.is_minting !== true
+        ) || (Boolean(summary.next_stage) && (!mint || !isUpcoming)))
+      ) {
+        upcomingDetailCandidates.set(summary.collection_slug.toLowerCase(), summary);
+      }
+      if (!mint || !isFreeMintPrice(mint.price) || !isUpcoming) continue;
+      unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+      continue;
+    }
     if (!mint || !isFreeMintPrice(mint.price)) continue;
-    const isUpcoming = mint.startsAt > now;
     const isLive = summary.is_minting === true
       && mint.startsAt <= now
       && (!mint.endsAt || mint.endsAt > now);
     if (view === "live" && isLive && !isSoldOut(summary)) {
       liveCandidates.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
-    } else if (view === "upcoming" && isUpcoming) {
-      unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+    }
+  }
+
+  if (view === "upcoming") {
+    // The documented upcoming calendar is occasionally empty while OpenSea's
+    // featured calendar already contains the same newly listed drops. Query it
+    // only as a fallback to avoid multiplying API traffic during normal polls.
+    if (!pages[0]?.length || !unique.size) {
+      const featured = await fetchDropCalendar(apiKey, "featured", fetcher);
+      for (const summary of featured.slice(0, FEATURED_FALLBACK_MAX_DROPS)) {
+        if (summary.collection_slug) {
+          upcomingDetailCandidates.set(summary.collection_slug.toLowerCase(), summary);
+        }
+      }
+    }
+    if (upcomingDetailCandidates.size) {
+      const details = await inChunks([...upcomingDetailCandidates.entries()], 5, async ([slug, summary]) => ({
+        slug,
+        summary,
+        detail: await fetchOpenSeaJson<OpenSeaDropDetailsResponse>(
+          `/drops/${encodeURIComponent(slug)}`,
+          apiKey,
+          fetcher,
+        ),
+      }));
+      for (const { slug, summary, detail } of details) {
+        const stages = Array.isArray(detail.stages) ? detail.stages : [];
+        for (const stage of stages) {
+          const enrichedSummary: OpenSeaDropSummaryResponse = { ...summary, collection_slug: slug };
+          if (detail.collection_name) enrichedSummary.collection_name = detail.collection_name;
+          if (detail.chain) enrichedSummary.chain = detail.chain;
+          const mint = stageToMint(enrichedSummary, stage);
+          if (!mint || mint.startsAt <= now || !isFreeMintPrice(mint.price)) continue;
+          unique.set(`${mint.slug}:${mint.stageId}:${mint.startsAt.toISOString()}`, mint);
+        }
+      }
     }
   }
 
@@ -238,7 +288,7 @@ export async function findFreeMintDirectory(
 }
 
 export function isFreeMintPrice(price: string): boolean {
-  return /^0+$/.test(price);
+  return /^0+$/.test(price.trim());
 }
 
 function parseSupply(value: number | string | null | undefined): bigint | null {
@@ -275,8 +325,23 @@ export async function findUpcomingMintStages(
   const candidates = new Map<string, OpenSeaDropSummaryResponse>();
   const drops = await fetchDropCalendar(apiKey, "upcoming", fetcher);
   for (const drop of drops) {
-    if (drop.collection_slug && startsWithin(drop.next_stage, now, cutoff)) {
-      candidates.set(drop.collection_slug, drop);
+    if (drop.collection_slug && (!drop.next_stage || startsWithin(drop.next_stage, now, cutoff))) {
+      candidates.set(drop.collection_slug.toLowerCase(), drop);
+    }
+  }
+
+  // OpenSea has returned an empty upcoming page for newly listed drops while
+  // exposing them in the featured calendar. Fall back to that calendar when
+  // it yields no usable candidates, then inspect the detailed stage list.
+  if (!candidates.size) {
+    const featured = await fetchDropCalendar(apiKey, "featured", fetcher);
+    for (const drop of featured.slice(0, FEATURED_FALLBACK_MAX_DROPS)) {
+      if (
+        drop.collection_slug
+        && (!drop.next_stage || startsWithin(drop.next_stage, now, cutoff))
+      ) {
+        candidates.set(drop.collection_slug.toLowerCase(), drop);
+      }
     }
   }
 

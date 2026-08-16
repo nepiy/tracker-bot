@@ -122,7 +122,7 @@ describe("OpenSea upcoming free mints", () => {
       12,
       fetcher,
     )).resolves.toEqual([]);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("uses a one-hour default lookahead for automatic discovery", async () => {
@@ -136,7 +136,97 @@ describe("OpenSea upcoming free mints", () => {
     }));
 
     await expect(findUpcomingFreeMints("test-key", now, undefined, fetcher)).resolves.toEqual([]);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to featured drop details when OpenSea's upcoming page is empty", async () => {
+    const now = new Date("2026-08-16T10:00:00Z");
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("type") === "upcoming") {
+        return jsonResponse({ drops: [], next: null });
+      }
+      if (url.searchParams.get("type") === "featured") {
+        return jsonResponse({
+          drops: [{
+            collection_slug: "featured-free-drop",
+            collection_name: "Featured Free Drop",
+            chain: "base",
+            is_minting: false,
+          }],
+          next: null,
+        });
+      }
+      return jsonResponse({
+        collection_slug: "featured-free-drop",
+        collection_name: "Featured Free Drop",
+        chain: "base",
+        stages: [{
+          uuid: "featured-free-stage",
+          stage_type: "public_sale",
+          label: "Public free mint",
+          price: "0",
+          price_currency_address: "0x0000000000000000000000000000000000000000",
+          start_time: "2026-08-16T12:00:00Z",
+          end_time: "2026-08-16T14:00:00Z",
+        }],
+      });
+    });
+
+    await expect(findUpcomingFreeMints("test-key", now, 12, fetcher)).resolves.toMatchObject([
+      {
+        slug: "featured-free-drop",
+        chain: "base",
+        stageId: "featured-free-stage",
+      },
+    ]);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls
+      .map(([input]) => String(input))
+      .filter((url) => url.includes("/drops?"))
+      .every((url) => !url.includes("chains="))).toBe(true);
+  });
+
+  it("shows the same featured fallback in the manual upcoming directory", async () => {
+    const now = new Date("2026-08-16T10:00:00Z");
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("type") === "upcoming") return jsonResponse({ drops: [], next: null });
+      if (url.searchParams.get("type") === "featured") {
+        return jsonResponse({
+          drops: [{
+            collection_slug: "featured-directory-free",
+            collection_name: "Featured Directory Free",
+            chain: "polygon",
+            is_minting: false,
+          }],
+          next: null,
+        });
+      }
+      return jsonResponse({
+        collection_slug: "featured-directory-free",
+        collection_name: "Featured Directory Free",
+        chain: "polygon",
+        stages: [{
+          uuid: "directory-free-stage",
+          stage_type: "signed_presale",
+          label: "FCFS",
+          price: "0",
+          price_currency_address: "0x0000000000000000000000000000000000000000",
+          start_time: "2026-08-16T11:00:00Z",
+          end_time: "2026-08-16T13:00:00Z",
+        }],
+      });
+    });
+
+    await expect(findFreeMintDirectory("test-key", "upcoming", now, fetcher)).resolves.toMatchObject([
+      {
+        slug: "featured-directory-free",
+        chain: "polygon",
+        stageId: "directory-free-stage",
+      },
+    ]);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("reads payment-token decimals, symbol, and USD price", async () => {

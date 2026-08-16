@@ -14,7 +14,7 @@ const PAGE_SIZE = 5;
 export const FREE_MINTS_MENU_TEXT = [
   "🆓 OpenSea Free Mints",
   "",
-  "Browse zero-price public, GTD, and FCFS mint stages listed in OpenSea's drop calendar.",
+  "Browse zero-price public, GTD, and FCFS mint stages listed in OpenSea's drop calendar across its supported chains.",
   "",
   "🕒 Upcoming — scheduled free mints that have not started yet.",
   "🟢 Live now — free public, GTD, or FCFS stages OpenSea reports as minting with supply remaining.",
