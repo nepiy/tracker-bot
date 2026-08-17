@@ -16,7 +16,7 @@ export const ELIGIBILITY_PROMPT = [
   "The bot will ask OpenSea to verify that wallet, then show only active or upcoming allowlist, GTD, FCFS, presale, or other non-public mint stages.",
   "Public-mint-only eligibility is intentionally hidden.",
   "",
-  "You will approve a read-only OpenSea sign-in. Never share a seed phrase or private key.",
+  "You will complete a read-only OpenSea sign-in in your browser. Never share a seed phrase or private key.",
 ].join("\n");
 
 function formatGmt(date: Date): string {
@@ -166,23 +166,22 @@ async function sendEligibilityResult(
 
   try {
     const session = await dependencies.eligibility.start(telegramId, normalized);
-    const verificationUrl = session.device.verification_uri_complete ?? session.device.verification_uri;
-    const expiresMinutes = Math.max(1, Math.ceil(session.device.expires_in / 60));
+    const expiresMinutes = Math.max(1, Math.ceil((session.expiresAt.getTime() - Date.now()) / 60_000));
     await ctx.reply([
       "🔐 OpenSea verification started",
       "",
       `Requested wallet: ${normalized}`,
       "",
-      "1. Open the official OpenSea verification page below.",
-      `2. Enter code: ${session.device.user_code}`,
-      "3. Sign in with the same wallet address.",
+      "1. Open the official OpenSea authorization page below.",
+      "2. Sign in or connect the same wallet address.",
+      "3. Finish the read-only authorization, then return to Telegram.",
       "",
-      `This code expires in about ${expiresMinutes} minutes. The bot will send your result automatically after verification.`,
+      `This link expires in about ${expiresMinutes} minutes. The bot will send your result automatically after authorization.`,
       "",
       "Only read:eligibility access is requested. No private key or seed phrase is ever requested.",
     ].join("\n"), {
       reply_markup: new InlineKeyboard()
-        .url("🔐 Verify with OpenSea ↗", verificationUrl)
+        .url("🔐 Authorize with OpenSea ↗", session.authorizationUrl)
         .row()
         .text("🏠 Main menu", "menu:home"),
       link_preview_options: { is_disabled: true },

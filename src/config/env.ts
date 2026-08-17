@@ -21,6 +21,11 @@ const optionalSecret = z.preprocess(
   z.string().trim().min(1).optional(),
 );
 
+const optionalHttpEndpoint = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  httpEndpoint.optional(),
+);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
@@ -30,6 +35,7 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: optionalSecret,
   OPENSEA_API_KEY: z.string().trim().min(1),
   OPENSEA_OAUTH_CLIENT_ID: z.string().trim().min(1).default("379893200225068569"),
+  OPENSEA_OAUTH_REDIRECT_URI: optionalHttpEndpoint,
   ETHEREUM_RPC_URL: httpEndpoint,
   ROBINHOOD_RPC_URL: httpEndpoint.default("https://rpc.mainnet.chain.robinhood.com"),
   ETHERSCAN_API_KEY: optionalSecret,
@@ -70,6 +76,13 @@ const envSchema = z.object({
         message: "Production endpoints must use HTTPS",
       });
     }
+  }
+  if (env.OPENSEA_OAUTH_REDIRECT_URI && new URL(env.OPENSEA_OAUTH_REDIRECT_URI).protocol !== "https:") {
+    context.addIssue({
+      code: "custom",
+      path: ["OPENSEA_OAUTH_REDIRECT_URI"],
+      message: "Production OAuth redirect URI must use HTTPS",
+    });
   }
 });
 

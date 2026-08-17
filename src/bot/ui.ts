@@ -52,7 +52,7 @@ export const HELP_TEXT = [
   "/stop — stop tracking a collection",
   "/wallet <address> — track NFT mints and marketplace buys/sells",
   "/wallets — list or stop tracked wallets",
-  "/eligibility <wallet> — check OpenSea allowlist eligibility (read-only sign-in)",
+  "/eligibility <wallet> — check OpenSea allowlist eligibility (browser sign-in)",
   "/grouptrack <OpenSea URL> — track a collection in a group (admins only)",
   "/grouplist — manage this group's collection alerts (admins only)",
   "/settings — customize personal notification preferences",
