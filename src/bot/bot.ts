@@ -14,7 +14,6 @@ import { registerInfoCommand } from "./commands/info.js";
 import { registerNftPriceAlertCommands } from "./commands/priceAlerts.js";
 import { registerActiveTrackingCommand } from "./commands/activeTracking.js";
 import { registerFreeMintCommands } from "./commands/freeMints.js";
-import { registerEligibilityCommand } from "./commands/eligibility.js";
 
 export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext> {
   const bot = new Bot<BotContext>(dependencies.env.TELEGRAM_BOT_TOKEN);
@@ -25,7 +24,6 @@ export function createTelegramBot(dependencies: BotDependencies): Bot<BotContext
     dependencies.env.TELEGRAM_MAX_CONCURRENT_UPDATES,
   ));
   registerStartCommands(bot);
-  registerEligibilityCommand(bot, dependencies);
   registerActiveTrackingCommand(bot, dependencies);
   registerFreeMintCommands(bot, dependencies);
   registerNftPriceAlertCommands(bot, dependencies);

@@ -49,7 +49,6 @@ describe("Telegram collection dashboard", () => {
       ["👥 Add to Group"],
       ["📋 Active Tracking"],
       ["🔎 Research NFT", "🎯 Floor Alerts"],
-      ["🎟 Eligibility"],
       ["➕ Add Collection", "📡 Tracking Collection"],
       ["👛 Add Wallet", "🗂 Tracking Wallet"],
       ["⚡ Recent Activity", "🆓 Free Mints"],
