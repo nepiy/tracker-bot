@@ -4,6 +4,7 @@ import { findOpenSeaUrl } from "../../opensea/parseOpenSeaUrl.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { formatTrackingResult, replyWithError } from "../helpers.js";
 import { isGroupChat, requireGroupAdmin } from "../groupAdmin.js";
+import { deleteCallbackMessage, deleteReplyPrompt } from "../ui.js";
 
 export const TRACK_PROMPT = [
   "➕ Add an OpenSea collection",
@@ -19,6 +20,7 @@ export const GROUP_TRACK_PROMPT = [
 ].join("\n");
 
 export async function requestOpenSeaLink(ctx: BotContext): Promise<void> {
+  await deleteCallbackMessage(ctx);
   const group = isGroupChat(ctx);
   await ctx.reply(group ? GROUP_TRACK_PROMPT : TRACK_PROMPT, {
     reply_markup: {
@@ -33,6 +35,7 @@ async function trackUrl(ctx: BotContext, dependencies: BotDependencies, url: str
   if (!ctx.from) return;
   const group = isGroupChat(ctx);
   if (group && !await requireGroupAdmin(ctx)) return;
+  await deleteReplyPrompt(ctx, group ? GROUP_TRACK_PROMPT : TRACK_PROMPT);
   const progress = await ctx.reply("🔎 Analyzing collection…");
   try {
     const result = group
@@ -98,6 +101,7 @@ export function registerTrackCommand(bot: Bot<BotContext>, dependencies: BotDepe
     if (!url) {
       if (ctx.message.reply_to_message?.text === TRACK_PROMPT || ctx.message.reply_to_message?.text === GROUP_TRACK_PROMPT) {
         if (isGroupChat(ctx) && !await requireGroupAdmin(ctx)) return;
+        await deleteReplyPrompt(ctx, ctx.message.reply_to_message.text);
         await ctx.reply("That doesn't look like an OpenSea collection link. Please send a link beginning with https://opensea.io/collection/.");
         return;
       }

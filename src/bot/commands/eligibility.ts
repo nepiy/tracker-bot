@@ -6,7 +6,7 @@ import type { EligibilityCheckResult } from "../../services/eligibility.js";
 import { UserFacingError, ExternalServiceError } from "../../utils/errors.js";
 import { normalizeAddress } from "../../utils/address.js";
 import type { BotContext, BotDependencies } from "../context.js";
-import { homeKeyboard } from "../ui.js";
+import { deleteCallbackMessage, deleteReplyPrompt, homeKeyboard } from "../ui.js";
 
 export const ELIGIBILITY_PROMPT = [
   "🎟 Check OpenSea allowlist eligibility",
@@ -139,6 +139,7 @@ function errorMessage(error: unknown): string {
 }
 
 export async function requestEligibilityInput(ctx: BotContext): Promise<void> {
+  await deleteCallbackMessage(ctx);
   await ctx.reply(ELIGIBILITY_PROMPT, {
     reply_markup: {
       force_reply: true,
@@ -155,6 +156,7 @@ async function sendEligibilityResult(
 ): Promise<void> {
   if (!ctx.from) return;
   const telegramId = ctx.from.id;
+  await deleteReplyPrompt(ctx, ELIGIBILITY_PROMPT);
   let normalized: string;
   try {
     if (!isAddress(address.trim(), { strict: false })) throw new Error("invalid");
@@ -167,7 +169,7 @@ async function sendEligibilityResult(
   try {
     const session = await dependencies.eligibility.start(telegramId, normalized);
     const expiresMinutes = Math.max(1, Math.ceil((session.expiresAt.getTime() - Date.now()) / 60_000));
-    await ctx.reply([
+    const authorizationMessage = await ctx.reply([
       "🔐 OpenSea verification started",
       "",
       `Requested wallet: ${normalized}`,
@@ -188,6 +190,7 @@ async function sendEligibilityResult(
     });
     void session.result
       .then(async (result) => {
+        await ctx.api.deleteMessage(telegramId, authorizationMessage.message_id).catch(() => undefined);
         const messages = formatEligibleStages(result.authenticatedAddress, result);
         for (const message of messages) {
           await ctx.api.sendMessage(telegramId, message.text, {
@@ -198,6 +201,7 @@ async function sendEligibilityResult(
       })
       .catch(async (error) => {
         logger.warn({ err: error, telegramId }, "OpenSea eligibility check failed");
+        await ctx.api.deleteMessage(telegramId, authorizationMessage.message_id).catch(() => undefined);
         await ctx.api.sendMessage(telegramId, errorMessage(error), { reply_markup: homeKeyboard() }).catch(() => undefined);
       });
   } catch (error) {

@@ -14,6 +14,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 ## Current features
 
 - Interactive Telegram dashboard with inline navigation and a front-page **Add to Group** action
+- Clean single-screen navigation that removes the previous menu or reply prompt as users move deeper or return to the main menu
 - Fresh OpenSea free-mint browser with separate paginated **Upcoming** and **Live now** views
 - Personal **Active Tracking** overview combining collections, wallets, floor targets, and free-mint status
 - Read-only collection research from an OpenSea URL or Ethereum/Robinhood NFT contract
@@ -68,6 +69,8 @@ For a one-time floor target, tap **Floor Alerts** or run `/pricealert`. After re
 The bot can also be added to a Telegram group. Tap **Add to Group** at the top of the dashboard to open Telegram's group picker. A verified group admin can subscribe the group to a collection, and every active group subscription receives the same dev-wallet and high-risk alerts in the group chat.
 
 The `/list` dashboard then lets the user inspect the collection, open OpenSea or the chain explorer, view activity, stop tracking, add another collection, or return to the main menu.
+
+Inline navigation replaces the previous bot screen instead of stacking another dashboard below it. When a user opens a reply-input flow, the tapped menu is removed; after the user answers, the force-reply prompt is removed as well. Returning to **Main menu** performs the same cleanup. User-submitted messages are not deleted.
 
 Free-mint discovery is optional and disabled for every user by default. Open **Settings** or run `/settings` to enable it for your Telegram account. The watcher reads OpenSea's official upcoming-drops calendar, falls back to featured-drop details when that page is empty, checks the detailed mint stages, and sends one notification when a zero-price public, GTD, or FCFS stage is scheduled to begin within the next hour. It persists the observed stage price; if that same stage later changes from free to any positive amount, the bot sends a `MINT PRICE CHANGED` warning on the next polling cycle. The watcher scans on its configured poll interval (10 minutes by default) so newly listed stages are picked up without waiting an hour. Each `(user, stage, start time)` is durably claimed once, so the same stage is not announced again on the next scan. The warning shows the token amount and an approximate USD value when OpenSea provides a usable quote. Start and end times are always displayed in GMT. Network gas can still apply. Other private, creator-reserve, and team-only stages remain excluded.
 

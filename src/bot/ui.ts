@@ -92,11 +92,42 @@ export function homeKeyboard(): InlineKeyboard {
   return new InlineKeyboard().text("🏠 Main menu", "menu:home");
 }
 
+/**
+ * Removes the bot message whose inline button was pressed. This keeps prompt
+ * screens from stacking on top of the dashboard while still allowing the
+ * caller to render the next screen as a fresh message.
+ */
+export async function deleteCallbackMessage(ctx: BotContext): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const messageId = ctx.callbackQuery?.message?.message_id;
+  if (chatId === undefined || messageId === undefined) return;
+  await ctx.api.deleteMessage(chatId, messageId).catch(() => undefined);
+}
+
+/** Removes a force-reply prompt after the user has answered it. */
+export async function deleteReplyPrompt(ctx: BotContext, expectedText?: string): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const reply = ctx.message?.reply_to_message;
+  if (chatId === undefined || !reply || (expectedText && reply.text !== expectedText)) return;
+  await ctx.api.deleteMessage(chatId, reply.message_id).catch(() => undefined);
+}
+
 export async function editMessageSafely(
   ctx: BotContext,
   text: string,
   keyboard: InlineKeyboard,
 ): Promise<void> {
+  const chatId = ctx.chat?.id;
+  const callbackMessageId = ctx.callbackQuery?.message?.message_id;
+  if (chatId !== undefined && callbackMessageId !== undefined) {
+    const deleted = await ctx.api.deleteMessage(chatId, callbackMessageId)
+      .then(() => true)
+      .catch(() => false);
+    if (deleted) {
+      await ctx.api.sendMessage(chatId, text, { reply_markup: keyboard });
+      return;
+    }
+  }
   try {
     await ctx.editMessageText(text, { reply_markup: keyboard });
   } catch (error) {

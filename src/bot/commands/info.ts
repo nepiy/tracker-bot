@@ -19,6 +19,7 @@ import { isFreeMintPrice } from "../../opensea/upcomingDrops.js";
 import { formatTokenWithUsd, formatUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { replyWithError } from "../helpers.js";
+import { deleteCallbackMessage, deleteReplyPrompt } from "../ui.js";
 
 export const INFO_PROMPT = [
   "🔎 Find collection information",
@@ -251,6 +252,7 @@ async function loadCreatorTokenHistory(
 }
 
 export async function requestCollectionInfoInput(ctx: BotContext): Promise<void> {
+  await deleteCallbackMessage(ctx);
   await ctx.reply(INFO_PROMPT, {
     reply_markup: {
       force_reply: true,
@@ -265,6 +267,7 @@ async function sendCollectionInfo(
   dependencies: BotDependencies,
   input: string,
 ): Promise<void> {
+  await deleteReplyPrompt(ctx, INFO_PROMPT);
   const progress = await ctx.reply("🔎 Reading collection and deployer history…");
   try {
     const info = await getCollectionInfo(input, dependencies.env.OPENSEA_API_KEY);

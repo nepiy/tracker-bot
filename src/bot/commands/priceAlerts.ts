@@ -9,7 +9,7 @@ import { compactDecimal, formatTokenWithUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { requirePrivateTrackingChat } from "../chatAccess.js";
 import { replyWithError } from "../helpers.js";
-import { editMessageSafely, homeKeyboard } from "../ui.js";
+import { deleteCallbackMessage, deleteReplyPrompt, editMessageSafely, homeKeyboard } from "../ui.js";
 
 export const PRICE_ALERT_COLLECTION_PROMPT = [
   "🎯 Create an NFT floor-price alert",
@@ -138,6 +138,7 @@ async function requestCollection(ctx: BotContext): Promise<void> {
     await ctx.reply("Open a private chat with me to create a personal NFT price alert.");
     return;
   }
+  await deleteCallbackMessage(ctx);
   await ctx.reply(PRICE_ALERT_COLLECTION_PROMPT, {
     reply_markup: {
       force_reply: true,
@@ -153,6 +154,7 @@ async function requestTarget(
   collectionInput: string,
 ): Promise<void> {
   if (!privateChatOnly(ctx)) return;
+  await deleteReplyPrompt(ctx, PRICE_ALERT_COLLECTION_PROMPT);
   const progress = await ctx.reply("🔎 Reading the current OpenSea floor…");
   try {
     const info = await getCollectionInfo(collectionInput, dependencies.env.OPENSEA_API_KEY);
@@ -191,6 +193,7 @@ async function createTarget(
   rawTarget: string,
 ): Promise<void> {
   if (!ctx.from || !privateChatOnly(ctx)) return;
+  await deleteReplyPrompt(ctx);
   const targetPrice = parseNftTargetPrice(rawTarget);
   if (!targetPrice) {
     await ctx.reply("❌ Send a positive price with no more than 18 decimal places, for example: 0.01");

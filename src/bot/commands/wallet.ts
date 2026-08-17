@@ -4,7 +4,7 @@ import { getChains } from "../../blockchain/chains.js";
 import type { WalletSubscriptionView } from "../../database/repositories/walletSubscriptions.js";
 import { normalizeAddress, shortAddress } from "../../utils/address.js";
 import type { BotContext, BotDependencies } from "../context.js";
-import { chainLabel, editMessageSafely, homeKeyboard } from "../ui.js";
+import { chainLabel, deleteCallbackMessage, deleteReplyPrompt, editMessageSafely, homeKeyboard } from "../ui.js";
 import { requirePrivateTrackingChat } from "../chatAccess.js";
 
 export const WALLET_PROMPT = [
@@ -39,6 +39,7 @@ export function formatWalletSubscriptions(items: WalletSubscriptionView[]): stri
 }
 
 async function requestWalletAddress(ctx: BotContext): Promise<void> {
+  await deleteCallbackMessage(ctx);
   await ctx.reply(WALLET_PROMPT, {
     reply_markup: {
       force_reply: true,
@@ -49,6 +50,7 @@ async function requestWalletAddress(ctx: BotContext): Promise<void> {
 }
 
 async function chooseNetworks(ctx: BotContext, rawAddress: string): Promise<void> {
+  await deleteReplyPrompt(ctx, WALLET_PROMPT);
   let address;
   try {
     address = normalizeAddress(rawAddress.trim());
@@ -125,6 +127,7 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
       ? supported
       : supported.filter((chain) => chain.chainId === Number(selection));
     if (chains.length === 0) {
+      await deleteCallbackMessage(ctx);
       await ctx.reply("❌ Unsupported network.", { reply_markup: homeKeyboard() });
       return;
     }
@@ -140,14 +143,14 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
       .text("➕ Add another", "menu:wallet-track")
       .row()
       .text("🏠 Menu", "menu:home");
-    await ctx.editMessageText([
+    await editMessageSafely(ctx, [
       newlyEnabled ? "✅ Wallet tracking enabled" : "ℹ️ Wallet already tracked",
       "",
       address,
       `Networks: ${chains.map((chain) => chain.name).join(", ")}`,
       "",
       "You’ll receive alerts when this wallet mints an NFT or buys/sells through a recognized marketplace settlement.",
-    ].join("\n"), { reply_markup: keyboard });
+    ].join("\n"), keyboard);
   });
 
   bot.callbackQuery(/^wallet:stop:([0-9a-f-]{36})$/, async (ctx) => {
