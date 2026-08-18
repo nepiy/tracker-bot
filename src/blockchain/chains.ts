@@ -6,13 +6,24 @@ import { getExtraMonitoringChains } from "../config/monitoring.js";
 type DiscoveryChainConfig = ChainConfig & { key: SupportedChainKey };
 type StaticChainConfig = Omit<DiscoveryChainConfig, "rpcUrl"> & { rpcEnvKey: keyof AppEnv };
 
+export const ETHEREUM_CHAIN_ID = 1;
+export const ROBINHOOD_CHAIN_ID = 4663;
 export const BASE_CHAIN_ID = 8453;
+
+/**
+ * Wallet/dev activity alerts are intentionally limited to Robinhood Chain for
+ * now. Ethereum remains a discovery chain so collection research can still
+ * resolve Ethereum collections and their metadata.
+ */
+export function isTrackingChainId(chainId: number): boolean {
+  return Number(chainId) === ROBINHOOD_CHAIN_ID;
+}
 
 const STATIC_CHAINS: Record<SupportedChainKey, StaticChainConfig> = {
   ethereum: {
     key: "ethereum",
     name: "Ethereum",
-    chainId: 1,
+    chainId: ETHEREUM_CHAIN_ID,
     openSeaIdentifiers: ["ethereum", "eth"],
     rpcEnvKey: "ETHEREUM_RPC_URL",
     explorerUrl: "https://etherscan.io",
@@ -23,7 +34,7 @@ const STATIC_CHAINS: Record<SupportedChainKey, StaticChainConfig> = {
   robinhood: {
     key: "robinhood",
     name: "Robinhood Chain",
-    chainId: 4663,
+    chainId: ROBINHOOD_CHAIN_ID,
     openSeaIdentifiers: ["robinhood", "robinhood_chain", "robinhood-chain"],
     rpcEnvKey: "ROBINHOOD_RPC_URL",
     explorerUrl: "https://robinhoodchain.blockscout.com",
@@ -59,6 +70,15 @@ export function getMonitoringChains(env: AppEnv): ChainConfig[] {
   return [...discoveryChains, ...extras];
 }
 
+/**
+ * Chains used by collection-dev and direct-wallet watchers. Keep this list
+ * separate from discovery/creator-history chains so Ethereum research does
+ * not accidentally re-enable Ethereum activity alerts.
+ */
+export function getTrackingChains(env: AppEnv): ChainConfig[] {
+  return [getChains(env).robinhood];
+}
+
 export function resolveChainIdentifier(identifier: string, env: AppEnv): DiscoveryChainConfig {
   const normalized = identifier.toLowerCase();
   const chain = Object.values(getChains(env)).find((candidate) =>
@@ -76,5 +96,14 @@ export function resolveChainIdentifier(identifier: string, env: AppEnv): Discove
 export function getChainById(chainId: number, env: AppEnv): ChainConfig {
   const chain = getMonitoringChains(env).find((candidate) => candidate.chainId === chainId);
   if (!chain) throw new Error(`Unsupported chain ID: ${chainId}`);
+  return chain;
+}
+
+export function getTrackingChainById(chainId: number, env: AppEnv): ChainConfig {
+  const chain = getTrackingChains(env).find((candidate) => candidate.chainId === chainId);
+  if (!chain) throw new UserFacingError(
+    "Wallet and developer-wallet tracking is currently available only on Robinhood Chain. Ethereum collection research remains available through Research NFT.",
+    "UNSUPPORTED_TRACKING_CHAIN",
+  );
   return chain;
 }

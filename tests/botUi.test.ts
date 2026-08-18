@@ -3,8 +3,8 @@ import type { SubscriptionView } from "../src/database/repositories/subscription
 import type { ActivityRow } from "../src/database/repositories/transactions.js";
 import { formatCollectionDetails, formatTrackedCollections } from "../src/bot/commands/list.js";
 import { activityMatchesFilter, formatActivityAction } from "../src/bot/commands/activity.js";
-import { chainLabel, explorerAddressUrl, MAIN_MENU_TEXT, mainMenuKeyboard } from "../src/bot/ui.js";
-import { formatWalletSubscriptions } from "../src/bot/commands/wallet.js";
+import { chainLabel, explorerAddressUrl, HELP_TEXT, MAIN_MENU_TEXT, mainMenuKeyboard } from "../src/bot/ui.js";
+import { formatWalletSubscriptions, WALLET_PROMPT } from "../src/bot/commands/wallet.js";
 import { ADD_TO_GROUP_TEXT, formatGroupSubscriptions, groupInstallUrl } from "../src/bot/commands/group.js";
 import { isAdminStatus } from "../src/bot/groupAdmin.js";
 import { formatSettings } from "../src/bot/commands/settings.js";
@@ -55,6 +55,13 @@ describe("Telegram collection dashboard", () => {
       ["⚙️ Alert Settings", "🛑 Stop Collection"],
       ["❓ Guide", "🔄 Refresh Dashboard"],
     ]);
+  });
+
+  it("limits direct wallet tracking to Robinhood Chain while keeping research multi-chain", () => {
+    expect(WALLET_PROMPT).toContain("Robinhood Chain");
+    expect(WALLET_PROMPT).not.toContain("choose the network");
+    expect(WALLET_PROMPT).not.toContain("Ethereum");
+    expect(HELP_TEXT).toContain("on Robinhood Chain");
   });
 
   it("offers fresh, separate upcoming and live free-mint views", () => {

@@ -1,6 +1,6 @@
 import type { ChainClient } from "../blockchain/clients.js";
 import { createChainClient } from "../blockchain/clients.js";
-import { getMonitoringChains } from "../blockchain/chains.js";
+import { getTrackingChains } from "../blockchain/chains.js";
 import type { AppEnv } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import type { Repositories } from "../database/repositories/index.js";
@@ -176,7 +176,7 @@ export class WalletWatcher {
   }
 
   async run(signal: AbortSignal): Promise<void> {
-    const chains = getMonitoringChains(this.env);
+    const chains = getTrackingChains(this.env);
     logger.info({ chains: chains.map((chain) => chain.chainId) }, "watcher starting");
     await Promise.all(chains.map((chain) => this.runChain(chain, createChainClient(chain), signal)));
   }

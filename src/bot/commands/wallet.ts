@@ -1,6 +1,6 @@
 import { InlineKeyboard, type Bot } from "grammy";
 import { isAddress } from "viem";
-import { getChains } from "../../blockchain/chains.js";
+import { getTrackingChains } from "../../blockchain/chains.js";
 import type { WalletSubscriptionView } from "../../database/repositories/walletSubscriptions.js";
 import { normalizeAddress, shortAddress } from "../../utils/address.js";
 import type { BotContext, BotDependencies } from "../context.js";
@@ -10,7 +10,7 @@ import { requirePrivateTrackingChat } from "../chatAccess.js";
 export const WALLET_PROMPT = [
   "👛 Track a wallet",
   "",
-  "Send an EVM wallet address. Then choose the network(s) to monitor for NFT mints and marketplace buys/sells.",
+  "Send an EVM wallet address to monitor on Robinhood Chain for NFT mints and marketplace buys/sells.",
   "",
   "Example:",
   "0x1234567890abcdef1234567890abcdef12345678",
@@ -63,13 +63,11 @@ async function chooseNetworks(ctx: BotContext, rawAddress: string): Promise<void
     return;
   }
   const keyboard = new InlineKeyboard()
-    .text("Ethereum", `wallet:add:1:${address}`)
-    .text("Robinhood", `wallet:add:4663:${address}`)
-    .text("All networks", `wallet:add:all:${address}`)
+    .text("Robinhood Chain", `wallet:add:4663:${address}`)
     .row()
     .text("🏠 Menu", "menu:home");
   await ctx.reply([
-    "Choose where to track this wallet:",
+    "Track this wallet on Robinhood Chain:",
     "",
     address,
   ].join("\n"), { reply_markup: keyboard });
@@ -116,16 +114,12 @@ export function registerWalletCommands(bot: Bot<BotContext>, dependencies: BotDe
     await editMessageSafely(ctx, formatWalletSubscriptions(items), walletListKeyboard(items));
   });
 
-  bot.callbackQuery(/^wallet:add:(all|\d+):(0x[0-9a-fA-F]{40})$/, async (ctx) => {
+  bot.callbackQuery(/^wallet:add:4663:(0x[0-9a-fA-F]{40})$/, async (ctx) => {
     if (!ctx.from) return;
     if (!await requirePrivateTrackingChat(ctx)) return;
     await ctx.answerCallbackQuery({ text: "Enabling wallet alerts…" });
-    const selection = ctx.match[1]!;
-    const address = normalizeAddress(ctx.match[2]!);
-    const supported = Object.values(getChains(dependencies.env));
-    const chains = selection === "all"
-      ? supported
-      : supported.filter((chain) => chain.chainId === Number(selection));
+    const address = normalizeAddress(ctx.match[1]!);
+    const chains = getTrackingChains(dependencies.env);
     if (chains.length === 0) {
       await deleteCallbackMessage(ctx);
       await ctx.reply("❌ Unsupported network.", { reply_markup: homeKeyboard() });

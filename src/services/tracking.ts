@@ -1,6 +1,6 @@
 import type { Address } from "viem";
 import { analyzeDevWallet } from "../blockchain/devAnalyzer.js";
-import { getChainById } from "../blockchain/chains.js";
+import { getTrackingChainById } from "../blockchain/chains.js";
 import { createChainClient } from "../blockchain/clients.js";
 import { resolveContractDeployment } from "../blockchain/deployment.js";
 import type { AppEnv } from "../config/env.js";
@@ -74,7 +74,7 @@ export class TrackingService {
       "resolved OpenSea collection",
     );
 
-    const chain = getChainById(collection.chainId, this.env);
+    const chain = getTrackingChainById(collection.chainId, this.env);
     const client = createChainClient(chain);
     const explorer = createExplorer(chain, this.env);
     const deployment = await withRetry(

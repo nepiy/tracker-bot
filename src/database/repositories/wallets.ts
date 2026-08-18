@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
-import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
+import { isTrackingChainId } from "../../blockchain/chains.js";
 import type { WalletEvidence } from "../../types/index.js";
 import { assertDatabaseResult } from "../client.js";
 
@@ -55,7 +55,7 @@ export class WalletsRepository {
     assertDatabaseResult(subscriptionError, "list active subscriptions");
     const collectionIds = [...new Set((active ?? []).flatMap((row) => {
       const collection = row.collections as unknown as { chain_id: number };
-      return Number(collection.chain_id) === BASE_CHAIN_ID ? [] : [String(row.collection_id)];
+      return isTrackingChainId(collection.chain_id) ? [String(row.collection_id)] : [];
     }))];
     if (collectionIds.length === 0) return [];
 

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
-import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
+import { isTrackingChainId } from "../../blockchain/chains.js";
 import { assertDatabaseResult } from "../client.js";
 
 export interface WalletSubscriptionView {
@@ -65,7 +65,7 @@ export class WalletSubscriptionsRepository {
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list wallet subscriptions");
     return ((data ?? []) as unknown as RawWalletSubscription[])
-      .filter((row) => row.wallets.chain_id !== BASE_CHAIN_ID)
+      .filter((row) => isTrackingChainId(row.wallets.chain_id))
       .map((row) => ({
         id: row.id,
         walletId: row.wallet_id,
@@ -88,6 +88,7 @@ export class WalletSubscriptionsRepository {
   }
 
   async listActiveWatched(chainId: number): Promise<MarketplaceWatchedWallet[]> {
+    if (!isTrackingChainId(chainId)) return [];
     const { data, error } = await this.db
       .from("wallet_subscriptions")
       .select("id,wallet_id,users!inner(telegram_id),wallets!inner(chain_id,address)")

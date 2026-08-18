@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { getMonitoringChains, resolveChainIdentifier } from "../src/blockchain/chains.js";
+import {
+  getMonitoringChains,
+  getTrackingChainById,
+  getTrackingChains,
+  isTrackingChainId,
+  resolveChainIdentifier,
+} from "../src/blockchain/chains.js";
 import type { AppEnv } from "../src/config/env.js";
 
 const env = {
@@ -47,5 +53,13 @@ describe("chain resolution", () => {
       }]),
     } as AppEnv;
     expect(getMonitoringChains(configured).map((chain) => chain.chainId)).not.toContain(8453);
+  });
+
+  it("keeps Ethereum discoverable while limiting activity tracking to Robinhood", () => {
+    expect(resolveChainIdentifier("ethereum", env).chainId).toBe(1);
+    expect(getTrackingChains(env).map((chain) => chain.chainId)).toEqual([4663]);
+    expect(isTrackingChainId(4663)).toBe(true);
+    expect(isTrackingChainId(1)).toBe(false);
+    expect(() => getTrackingChainById(1, env)).toThrow("only on Robinhood Chain");
   });
 });

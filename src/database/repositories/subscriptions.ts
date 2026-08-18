@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Address } from "viem";
-import { BASE_CHAIN_ID } from "../../blockchain/chains.js";
+import { isTrackingChainId } from "../../blockchain/chains.js";
 import { safeDisplayText } from "../../utils/display.js";
 import { assertDatabaseResult } from "../client.js";
 
@@ -77,7 +77,7 @@ export class SubscriptionsRepository {
       .order("created_at", { ascending: true });
     assertDatabaseResult(error, "list subscriptions");
     return ((data ?? []) as unknown as RawSubscription[]).flatMap((row) => {
-      if (row.collections.chain_id === BASE_CHAIN_ID) return [];
+      if (!isTrackingChainId(row.collections.chain_id)) return [];
       const tracked = row.collections.collection_wallets?.find((link) =>
         ["likely_dev", "tracked_fallback"].includes(link.relationship)
           && link.wallets.chain_id === row.collections.chain_id,
@@ -109,6 +109,7 @@ export class SubscriptionsRepository {
   }
 
   async recipientsForWallet(walletId: string, chainId: number): Promise<NotificationRecipient[]> {
+    if (!isTrackingChainId(chainId)) return [];
     const { data: links, error: linkError } = await this.db
       .from("collection_wallets")
       .select("collection_id")
