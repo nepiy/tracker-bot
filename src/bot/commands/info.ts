@@ -262,13 +262,15 @@ export async function requestCollectionInfoInput(ctx: BotContext): Promise<void>
   });
 }
 
-async function sendCollectionInfo(
+export async function sendCollectionInfo(
   ctx: BotContext,
   dependencies: BotDependencies,
   input: string,
+  existingProgressMessageId?: number,
 ): Promise<void> {
   await deleteReplyPrompt(ctx, INFO_PROMPT);
-  const progress = await ctx.reply("🔎 Reading collection and deployer history…");
+  const progressMessageId = existingProgressMessageId
+    ?? (await ctx.reply("🔎 Reading collection and deployer history…")).message_id;
   try {
     const info = await getCollectionInfo(input, dependencies.env.OPENSEA_API_KEY);
     const creatorHistory = await loadCreatorTokenHistory(info, dependencies).catch((error) => {
@@ -280,7 +282,7 @@ async function sendCollectionInfo(
       .row()
       .text("🔎 Look up another", "menu:info")
       .text("🏠 Menu", "menu:home");
-    await ctx.api.editMessageText(ctx.chat!.id, progress.message_id, formatCollectionInfo(info), {
+    await ctx.api.editMessageText(ctx.chat!.id, progressMessageId, formatCollectionInfo(info), {
       reply_markup: keyboard,
       link_preview_options: { is_disabled: true },
     });
@@ -291,7 +293,7 @@ async function sendCollectionInfo(
     }
   } catch (error) {
     logger.error({ err: error, telegramId: ctx.from?.id, chatId: ctx.chat?.id }, "collection info request failed");
-    await ctx.api.deleteMessage(ctx.chat!.id, progress.message_id).catch(() => undefined);
+    await ctx.api.deleteMessage(ctx.chat!.id, progressMessageId).catch(() => undefined);
     await replyWithError(ctx, error);
   }
 }

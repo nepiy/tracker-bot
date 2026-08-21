@@ -1,10 +1,12 @@
 import { InlineKeyboard, type Bot } from "grammy";
 import { logger } from "../../config/logger.js";
 import { findOpenSeaUrl } from "../../opensea/parseOpenSeaUrl.js";
+import { sendCollectionInfo } from "./info.js";
 import type { BotContext, BotDependencies } from "../context.js";
 import { formatTrackingResult, replyWithError } from "../helpers.js";
 import { isGroupChat, requireGroupAdmin } from "../groupAdmin.js";
 import { deleteCallbackMessage, deleteReplyPrompt } from "../ui.js";
+import { UserFacingError } from "../../utils/errors.js";
 
 export const TRACK_PROMPT = [
   "➕ Add an OpenSea collection",
@@ -31,7 +33,12 @@ export async function requestOpenSeaLink(ctx: BotContext): Promise<void> {
   });
 }
 
-async function trackUrl(ctx: BotContext, dependencies: BotDependencies, url: string): Promise<void> {
+async function trackUrl(
+  ctx: BotContext,
+  dependencies: BotDependencies,
+  url: string,
+  allowResearchFallback = false,
+): Promise<void> {
   if (!ctx.from) return;
   const group = isGroupChat(ctx);
   if (group && !await requireGroupAdmin(ctx)) return;
@@ -64,6 +71,12 @@ async function trackUrl(ctx: BotContext, dependencies: BotDependencies, url: str
       reply_markup: keyboard,
     });
   } catch (error) {
+    if (allowResearchFallback && !group
+      && error instanceof UserFacingError
+      && error.code === "UNSUPPORTED_TRACKING_CHAIN") {
+      await sendCollectionInfo(ctx, dependencies, url, progress.message_id);
+      return;
+    }
     logger.error({ err: error, telegramId: ctx.from.id, chatId: ctx.chat?.id }, "tracking request failed");
     await ctx.api.deleteMessage(ctx.chat!.id, progress.message_id).catch(() => undefined);
     await replyWithError(ctx, error);
@@ -107,6 +120,6 @@ export function registerTrackCommand(bot: Bot<BotContext>, dependencies: BotDepe
       }
       return next();
     }
-    await trackUrl(ctx, dependencies, url);
+    await trackUrl(ctx, dependencies, url, true);
   });
 }

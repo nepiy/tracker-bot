@@ -367,7 +367,7 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/pricealert <OpenSea URL or NFT contract>`: resolve the current floor and create a personal one-time upward or downward target; `/pricealert` by itself opens the collection prompt
 - `/pricealerts`: list active floor targets and cancel individual alerts
 - `/track <OpenSea URL>`: analyze and subscribe; `/track` by itself opens an OpenSea-link input prompt
-- Paste an OpenSea collection URL directly: same behavior as `/track`
+- Paste an OpenSea collection URL directly: Robinhood links are tracked; Ethereum links open collection research
 - `/list`: interactive tracked-collections dashboard with collection, contract, wallet, OpenSea, and explorer details
 - `/stop`: inline collection picker that deactivates only that user's subscription
 - `/activity`: interactive collection picker with All, Sends, Swaps, and Bridges filters
