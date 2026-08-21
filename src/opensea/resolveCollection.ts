@@ -21,6 +21,7 @@ export async function resolveOpenSeaCollection(
   url: string,
   env: AppEnv,
   fetcher: typeof fetch = fetch,
+  preferredChainIds: readonly number[] = [],
 ): Promise<ResolvedCollection> {
   const slug = parseOpenSeaUrl(url);
   const response = await fetcher(
@@ -47,7 +48,17 @@ export async function resolveOpenSeaCollection(
   }
   const collectionName = safeDisplayText(data.name, 300, "Unnamed collection");
 
-  for (const contract of data.contracts) {
+  const preferred = new Set(preferredChainIds);
+  const contracts = [...data.contracts].sort((left, right) => {
+    try {
+      const leftChain = resolveChainIdentifier(left.chain, env).chainId;
+      const rightChain = resolveChainIdentifier(right.chain, env).chainId;
+      return Number(preferred.has(rightChain)) - Number(preferred.has(leftChain));
+    } catch {
+      return 0;
+    }
+  });
+  for (const contract of contracts) {
     try {
       const chain = resolveChainIdentifier(contract.chain, env);
       return {

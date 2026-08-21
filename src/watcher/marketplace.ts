@@ -11,6 +11,7 @@ import type { ChainClient } from "../blockchain/clients.js";
 import { logger } from "../config/logger.js";
 import type { Repositories } from "../database/repositories/index.js";
 import type { MarketplaceWatchedWallet } from "../database/repositories/walletSubscriptions.js";
+import type { CollectionSaleWatchedCollection } from "../database/repositories/collectionSaleSubscriptions.js";
 import { normalizeAddress } from "../utils/address.js";
 import { withRetry } from "../utils/retry.js";
 import type { NotificationService } from "./notifications.js";
@@ -203,6 +204,45 @@ function marketplaceForTransfer(
   }
   const paidToWallet = hasErc20Payment(transaction.logs, wallet.address, "to");
   return paidToWallet || initiatedByWallet ? "Marketplace router" : null;
+}
+
+function hasErc20Movement(logs: readonly ReceiptLog[]): boolean {
+  return logs.some((log) => (
+    log.topics.length === 3
+    && log.topics[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC.toLowerCase()
+  ));
+}
+
+function collectionSaleMarketplace(
+  transfer: NftTransfer,
+  transaction: MarketplaceTransactionContext,
+): string | null {
+  if (transaction.seaport) return "Seaport";
+  const routedThroughAnotherContract = transaction.to !== null
+    && transaction.to.toLowerCase() !== transfer.contract.toLowerCase();
+  if (!routedThroughAnotherContract) return null;
+  if (transaction.value > 0n || hasErc20Movement(transaction.logs)) return "Marketplace router";
+  return null;
+}
+
+function salePayment(
+  transaction: MarketplaceTransactionContext,
+  seller: Address,
+  buyer: Address,
+): { token: Address | null; amount: bigint } | null {
+  if (transaction.value > 0n) return { token: null, amount: transaction.value };
+  const candidates = transaction.logs.flatMap((log) => {
+    if (log.topics.length !== 3 || log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) return [];
+    const from = indexedAddress(log.topics[1]!);
+    const to = indexedAddress(log.topics[2]!);
+    if (from.toLowerCase() !== buyer.toLowerCase() && to.toLowerCase() !== seller.toLowerCase()) return [];
+    try {
+      return [{ token: normalizeAddress(log.address), amount: BigInt(log.data) }];
+    } catch {
+      return [];
+    }
+  });
+  return candidates.sort((left, right) => (left.amount > right.amount ? -1 : left.amount < right.amount ? 1 : 0))[0] ?? null;
 }
 
 export async function processMarketplaceBlock(
@@ -413,6 +453,137 @@ export async function processMarketplaceRange(
           }
         }
       }
+    }
+  });
+}
+
+export async function processCollectionSaleRange(
+  chainId: number,
+  fromBlock: bigint,
+  toBlock: bigint,
+  watchedCollections: CollectionSaleWatchedCollection[],
+  client: ChainClient,
+  repositories: Repositories,
+  notifications: NotificationService,
+  getBlockTimestamp: (blockNumber: bigint) => Promise<bigint>,
+  logQueryIntervalMs = 0,
+): Promise<void> {
+  if (watchedCollections.length === 0) return;
+  const watchedByContract = new Map(watchedCollections.map((collection) => [collection.contractAddress.toLowerCase(), collection]));
+  const contracts = watchedCollections.map((collection) => collection.contractAddress);
+  const timestamps = new Map<bigint, bigint>();
+  const timestampForBlock = async (blockNumber: bigint): Promise<bigint> => {
+    const cached = timestamps.get(blockNumber);
+    if (cached !== undefined) return cached;
+    const timestamp = await getBlockTimestamp(blockNumber);
+    timestamps.set(blockNumber, timestamp);
+    return timestamp;
+  };
+  const candidates = new Map<Hash, bigint>();
+
+  for (let rangeStart = fromBlock; rangeStart <= toBlock; rangeStart += MARKETPLACE_LOG_RANGE_BLOCKS) {
+    const rangeEnd = rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n < toBlock
+      ? rangeStart + MARKETPLACE_LOG_RANGE_BLOCKS - 1n
+      : toBlock;
+    const queryLogs = <T>(operation: () => Promise<T>): Promise<T> => withRetry(
+      () => paceMarketplaceLogQuery(chainId, logQueryIntervalMs, operation),
+      {
+        attempts: 4,
+        initialDelayMs: 500,
+        maxDelayMs: 4_000,
+        onRetry: (error, attempt, delayMs) => logger.warn(
+          { err: error, attempt, delayMs, chainId, fromBlock: rangeStart.toString(), toBlock: rangeEnd.toString() },
+          "retrying collection sale log query",
+        ),
+      },
+    );
+    const transferLogs = (await Promise.all([
+      queryLogs(() => client.getLogs({ address: contracts, event: ERC721_TRANSFER_EVENT, fromBlock: rangeStart, toBlock: rangeEnd, strict: true })),
+      queryLogs(() => client.getLogs({ address: contracts, event: ERC1155_TRANSFER_SINGLE_EVENT, fromBlock: rangeStart, toBlock: rangeEnd, strict: true })),
+      queryLogs(() => client.getLogs({ address: contracts, event: ERC1155_TRANSFER_BATCH_EVENT, fromBlock: rangeStart, toBlock: rangeEnd, strict: true })),
+    ])).flat();
+    for (const rawLog of transferLogs) {
+      const log = rawLog as { transactionHash: Hash | null; blockNumber: bigint | null } & ReceiptLog;
+      if (!log.transactionHash || log.blockNumber === null) continue;
+      const target = watchedByContract.get(log.address.toLowerCase());
+      if (!target) continue;
+      const transfer = decodeNftTransfers([log])[0];
+      if (!transfer || transfer.from.toLowerCase() === ZERO_ADDRESS || transfer.to.toLowerCase() === ZERO_ADDRESS) continue;
+      candidates.set(log.transactionHash, log.blockNumber);
+    }
+  }
+
+  await mapWithConcurrency([...candidates], MAX_RECEIPT_CONCURRENCY, async ([hash, blockNumber]) => {
+    const receipt = await withRetry(() => client.getTransactionReceipt({ hash }), {
+      attempts: 4,
+      initialDelayMs: 500,
+      maxDelayMs: 4_000,
+      onRetry: (error, attempt, delayMs) => logger.warn({ err: error, attempt, delayMs, chainId, txHash: hash }, "retrying collection sale receipt query"),
+    });
+    if (receipt.status !== "success") return;
+    const transaction = await withRetry(() => client.getTransaction({ hash }), {
+      attempts: 4,
+      initialDelayMs: 500,
+      maxDelayMs: 4_000,
+      onRetry: (error, attempt, delayMs) => logger.warn({ err: error, attempt, delayMs, chainId, txHash: hash }, "retrying collection sale transaction query"),
+    });
+    const isSeaportSettlement = receipt.logs.some((log) => (
+      SEAPORT_ADDRESSES.some((address) => address.toLowerCase() === log.address.toLowerCase())
+      && log.topics[0]?.toLowerCase() === SEAPORT_ORDER_FULFILLED_TOPIC.toLowerCase()
+    ));
+    const context: MarketplaceTransactionContext = {
+      from: transaction.from,
+      to: transaction.to ?? null,
+      value: transaction.value,
+      logs: receipt.logs as readonly ReceiptLog[],
+      seaport: isSeaportSettlement,
+    };
+    const transfers = decodeNftTransfers(receipt.logs as readonly ReceiptLog[]).filter((transfer) => (
+      transfer.from.toLowerCase() !== ZERO_ADDRESS
+      && transfer.to.toLowerCase() !== ZERO_ADDRESS
+      && watchedByContract.has(transfer.contract.toLowerCase())
+      && transfer.from.toLowerCase() !== transfer.to.toLowerCase()
+    ));
+    const timestamp = await timestampForBlock(blockNumber);
+    for (const transfer of transfers) {
+      const collection = watchedByContract.get(transfer.contract.toLowerCase());
+      if (!collection) continue;
+      const marketplace = collectionSaleMarketplace(transfer, context);
+      if (!marketplace) continue;
+      const payment = salePayment(context, transfer.from, transfer.to);
+      const activity = {
+        collectionId: collection.id,
+        chainId,
+        txHash: hash,
+        logIndex: transfer.logIndex,
+        itemIndex: transfer.itemIndex,
+        marketplace,
+        nftContract: transfer.contract,
+        tokenId: transfer.tokenId,
+        quantity: transfer.quantity,
+        standard: transfer.standard,
+        seller: transfer.from,
+        buyer: transfer.to,
+        paymentToken: payment?.token ?? null,
+        paymentAmount: payment?.amount ?? null,
+        blockNumber,
+        timestamp: new Date(Number(timestamp) * 1_000),
+      } as const;
+      if (!await repositories.collectionSaleActivity.claim(activity)) continue;
+      try {
+        await notifications.sendCollectionSale(collection.recipients, {
+          ...activity,
+          collectionName: collection.name,
+          collectionSlug: collection.slug,
+          hash,
+        });
+      } catch (error) {
+        await repositories.collectionSaleActivity.release(activity).catch((releaseError) => {
+          logger.error({ err: releaseError, chainId, txHash: hash, collectionId: collection.id }, "failed to release collection sale claim after notification enqueue failure");
+        });
+        throw error;
+      }
+      logger.info({ chainId, blockNumber: blockNumber.toString(), txHash: hash, collectionId: collection.id }, "processed collection sale activity");
     }
   });
 }

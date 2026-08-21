@@ -5,12 +5,13 @@ import type { AppEnv } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import type { Repositories } from "../database/repositories/index.js";
 import type { MarketplaceWatchedWallet } from "../database/repositories/walletSubscriptions.js";
+import type { CollectionSaleWatchedCollection } from "../database/repositories/collectionSaleSubscriptions.js";
 import type { ChainConfig } from "../types/index.js";
 import type { WatchedWallet } from "../database/repositories/wallets.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 import { processBlock, type ProcessableBlock } from "./processBlock.js";
-import { MARKETPLACE_LOG_RANGE_BLOCKS, processMarketplaceRange } from "./marketplace.js";
+import { MARKETPLACE_LOG_RANGE_BLOCKS, processCollectionSaleRange, processMarketplaceRange } from "./marketplace.js";
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -37,8 +38,8 @@ export function selectWatcherResumeBlock(
   return safeHead > lookback ? safeHead - lookback : 0n;
 }
 
-export function selectWatcherScanBatchSize(configuredBatchSize: bigint, hasMarketplaceWallets: boolean): bigint {
-  if (!hasMarketplaceWallets) return configuredBatchSize;
+export function selectWatcherScanBatchSize(configuredBatchSize: bigint, hasMarketplaceTargets: boolean): bigint {
+  if (!hasMarketplaceTargets) return configuredBatchSize;
   return minBlock(configuredBatchSize, MARKETPLACE_LOG_RANGE_BLOCKS);
 }
 
@@ -72,6 +73,7 @@ export async function processWatchedRange(
   toBlock: bigint,
   watched: WatchedWallet[],
   marketplaceWatched: MarketplaceWatchedWallet[],
+  collectionSaleWatched: CollectionSaleWatchedCollection[],
   client: ChainClient,
   repositories: Repositories,
   notifications: NotificationService,
@@ -114,6 +116,25 @@ export async function processWatchedRange(
       fromBlock,
       toBlock,
       marketplaceWatched,
+      client,
+      repositories,
+      notifications,
+      async (blockNumber) => {
+        const cached = timestamps.get(blockNumber);
+        if (cached !== undefined) return cached;
+        const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
+        return block.timestamp;
+      },
+      marketplaceLogQueryIntervalMs,
+    );
+  }
+
+  if (collectionSaleWatched.length) {
+    await processCollectionSaleRange(
+      chainId,
+      fromBlock,
+      toBlock,
+      collectionSaleWatched,
       client,
       repositories,
       notifications,
@@ -186,10 +207,11 @@ export class WalletWatcher {
     const expandedLinks = new Set<string>();
     while (!signal.aborted) {
       try {
-        const [head, allWatched, marketplaceWatched] = await Promise.all([
+        const [head, allWatched, marketplaceWatched, collectionSaleWatched] = await Promise.all([
           withRetry(() => client.getBlockNumber(), { attempts: 3 }),
           this.repositories.wallets.listActiveWatched(),
           this.repositories.walletSubscriptions.listActiveWatched(chain.chainId),
+          this.repositories.collectionSaleSubscriptions.listActiveWatched(chain.chainId),
         ]);
         const confirmations = BigInt(this.env.WATCHER_CONFIRMATIONS);
         const safeHead = head > confirmations ? head - confirmations : 0n;
@@ -197,7 +219,7 @@ export class WalletWatcher {
         let lastProcessed = await this.repositories.transactions.getLastProcessedBlock(chain.chainId);
 
         if (lastProcessed === null) {
-          const lookback = watched.length || marketplaceWatched.length
+          const lookback = watched.length || marketplaceWatched.length || collectionSaleWatched.length
             ? BigInt(this.env.WATCHER_BOOTSTRAP_LOOKBACK_BLOCKS)
             : 0n;
           lastProcessed = safeHead > lookback ? safeHead - lookback : 0n;
@@ -229,7 +251,7 @@ export class WalletWatcher {
         // of replaying a full high-throughput-chain batch indefinitely.
         const batchSize = selectWatcherScanBatchSize(
           BigInt(this.env.WATCHER_SCAN_BATCH_SIZE),
-          marketplaceWatched.length > 0,
+          marketplaceWatched.length > 0 || collectionSaleWatched.length > 0,
         );
         for (let fromBlock = lastProcessed + 1n; fromBlock <= safeHead; fromBlock += batchSize) {
           if (signal.aborted) return;
@@ -240,6 +262,7 @@ export class WalletWatcher {
             toBlock,
             watched,
             marketplaceWatched,
+            collectionSaleWatched,
             client,
             this.repositories,
             this.notifications,

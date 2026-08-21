@@ -29,6 +29,7 @@ The project uses TypeScript, Node.js 22+, grammY, viem, Supabase/PostgreSQL, the
 - Automatic outgoing-activity alerts for active subscribers on Robinhood Chain
 - Direct wallet subscriptions on Robinhood Chain
 - Automatic NFT mint alerts plus buy/sell alerts for recognized Seaport marketplace settlements
+- Collection sale subscriptions with detailed NFT sale alerts (seller, buyer, marketplace, price, OpenSea item, and transaction)
 - High-risk `ALERT` notifications for native sends or ERC-20 swaps above 90% of the pre-block asset balance
 - High-risk alerts for recognized bridge calls and configured Binance, Bybit, or other CEX addresses
 - Creator-token history lookups across configured EVM chains without enabling activity alerts on those chains
@@ -77,7 +78,9 @@ Users can also tap **Free Mints** or run `/freemints` without enabling automatic
 
 For direct wallet tracking, tap **Add Wallet**, paste any valid EVM address, and choose Robinhood Chain. Ethereum wallet tracking is intentionally disabled for now, while Ethereum collection research remains available through **Research NFT**. The watcher recognizes canonical Seaport settlement contracts, inspects the successful transaction receipt, and labels NFT transfers into the wallet as buys and transfers out as sells. Plain wallet-to-wallet NFT transfers are not mislabeled as marketplace sales.
 
-To review everything currently enabled for your account, tap **Active Tracking** on the front page or run `/active`. This consolidated dashboard shows active collection dev-wallet monitoring, direct wallets tracked on Robinhood Chain, one-time floor targets and their status, and whether optional free-mint alerts are enabled. Its buttons open each management page directly. Long sections show the first eight items plus the full active count, keeping the Telegram message within its size limit; open the corresponding management page to see every item. Group subscriptions remain managed inside each Telegram group by its admins.
+To track sales for a collection without tracking its dev wallet, run `/sales` or tap **Sale Alerts**. Send an OpenSea collection link on Robinhood Chain. The watcher inspects ERC-721 and ERC-1155 transfers in successful Seaport or paid marketplace-router settlements, deduplicates each sale in Supabase, and queues a detailed message containing the collection, NFT name and OpenSea link, seller, buyer, marketplace protocol, sale price when available, transaction hash, and explorer link. Ethereum collection research remains available, but sale and wallet activity monitoring is Robinhood-only.
+
+To review everything currently enabled for your account, tap **Active Tracking** on the front page or run `/active`. This consolidated dashboard shows active collection dev-wallet monitoring, direct wallets tracked on Robinhood Chain, collection sale alerts, one-time floor targets and their status, and whether optional free-mint alerts are enabled. Its buttons open each management page directly. Long sections show the first eight items plus the full active count, keeping the Telegram message within its size limit; open the corresponding management page to see every item. Group subscriptions remain managed inside each Telegram group by its admins.
 
 Incoming transactions do not alert. A transaction only qualifies when its top-level `from` address equals a currently watched address. The separate watcher process must be running for automatic detection and notifications.
 
@@ -174,6 +177,7 @@ The public Robinhood RPC in `.env.example` is rate-limited. Use a production pro
    activity - View sends, swaps, and bridges
    wallet - Track a wallet's NFT mints and marketplace buys/sells
    wallets - List or stop tracked wallets
+   sales - Track NFT sales for a Robinhood collection
    grouptrack - Track a collection in this group (admins only)
    grouplist - List or stop this group's collection alerts (admins only)
    settings - Customize personal notification preferences
@@ -248,6 +252,8 @@ The schema contains:
 - `mint_price_change_notifications`
 - `nft_price_alerts`
 - `telegram_notification_outbox`
+- `collection_sale_subscriptions`
+- `collection_sale_activity`
 
 The `users.free_mint_alerts_enabled` preference defaults to `false`. Wallets use a unique `(chain_id, address)` key. Collection and direct-wallet subscriptions are deduplicated per user, while outgoing activity, marketplace activity, free-mint notifications, observed stage prices, price-transition notifications, active floor targets, and queued Telegram messages use transaction/log/stage/version/target/event uniqueness constraints for restart-safe processing. New floor-target rows move through `active → sending → triggered`; `sending` remains visible in the dashboard as **Delivering notification** until the alert is safely inserted into the outbox. Telegram requests use a 15-second timeout instead of grammY's 500-second default. The outbox moves through `pending → sending → delivered`, recovers interrupted claims after one minute, retries failed sends with capped exponential backoff, and retains delivered rows for 30 days for deduplication and auditability.
 
@@ -374,13 +380,14 @@ Only run one bot long-polling process for a Telegram token. Multiple watcher rep
 - `/wallet <address>`: track NFT mints and marketplace buy/sell alerts on Robinhood Chain
 - Paste an EVM wallet address directly: opens the Robinhood wallet-tracking prompt
 - `/wallets`: list direct wallet subscriptions and stop individual network subscriptions
+- `/sales <OpenSea URL>`: track NFT sales for a Robinhood collection; `/sales` by itself opens the input prompt
 - `/grouptrack <OpenSea URL>`: add a collection to the current Telegram group; group admins only
 - `/grouplist`: list or stop the current group's tracked collections; group admins only
 - `/settings`: turn personal OpenSea free-mint alerts on or off; off by default
 - `/freemints`: freshly browse paginated upcoming or currently-live public, GTD, and FCFS free mints from OpenSea
 - `/active`: show all personal collection, wallet, floor-target, and free-mint monitoring in one dashboard
 
-The dashboard keeps common actions in inline buttons: add the bot to a group, open **Active Tracking**, research a collection, create or manage floor targets, add a collection or wallet, use **Tracking Collection** and **Tracking Wallet** to inspect active subscriptions, review activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, and wallet tracking use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
+The dashboard keeps common actions in inline buttons: add the bot to a group, open **Active Tracking**, research a collection, create or manage floor targets, add a collection, wallet, or sale alert, use **Tracking Collection**, **Sale Alerts**, and **Tracking Wallet** to inspect active subscriptions, review activity, stop tracking, refresh, and return to the main menu. Research, price alerts, collection tracking, wallet tracking, and sale alerts use separate validated reply-input flows, so a contract sent to one prompt is not mistaken for another action.
 
 Stopping one subscription never disables another user's subscription. The watcher derives its deduplicated wallet set from all active subscriptions.
 

@@ -11,6 +11,7 @@ export const MAIN_MENU_TEXT = [
   "🎯 Floor alerts — get one notification when a collection floor reaches your chosen target.",
   "📡 Collection tracking — monitor the inferred dev/team wallet for sends, swaps, bridges, and high-risk moves.",
   "👛 Wallet tracking — follow NFT mints and marketplace buys/sells for any wallet on Robinhood Chain.",
+  "🛒 Collection sale alerts — watch a Robinhood collection and receive detailed NFT sale notifications.",
   "👥 Group tracking — add the bot to a group where admins control collection alerts.",
   "📋 Active tracking — see every personal monitor and alert setting in one place.",
   "🆓 Free mints — freshly browse OpenSea's upcoming and currently live public, GTD, and FCFS stages with supply remaining.",
@@ -51,6 +52,7 @@ export const HELP_TEXT = [
   "/stop — stop tracking a collection",
   "/wallet <address> — track NFT mints and marketplace buys/sells",
   "/wallets — list or stop tracked wallets",
+  "/sales <OpenSea URL> — receive detailed sale alerts for a Robinhood collection",
   "/grouptrack <OpenSea URL> — track a collection in a group (admins only)",
   "/grouplist — manage this group's collection alerts (admins only)",
   "/settings — customize personal notification preferences",
@@ -71,10 +73,12 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text("➕ Add Collection", "menu:track")
     .text("📡 Tracking Collection", "menu:list")
     .row()
+    .text("🛒 Sale Alerts", "menu:sale-alerts")
+    .text("⚡ Recent Activity", "menu:activity")
+    .row()
     .text("👛 Add Wallet", "menu:wallet-track")
     .text("🗂 Tracking Wallet", "menu:wallets")
     .row()
-    .text("⚡ Recent Activity", "menu:activity")
     .text("🆓 Free Mints", "menu:free-mints")
     .row()
     .text("⚙️ Alert Settings", "menu:settings")

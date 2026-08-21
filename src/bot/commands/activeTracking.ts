@@ -2,6 +2,7 @@ import { InlineKeyboard, type Bot } from "grammy";
 import type { NftPriceAlertView } from "../../database/repositories/nftPriceAlerts.js";
 import type { SubscriptionView } from "../../database/repositories/subscriptions.js";
 import type { WalletSubscriptionView } from "../../database/repositories/walletSubscriptions.js";
+import type { CollectionSaleSubscriptionView } from "../../database/repositories/collectionSaleSubscriptions.js";
 import { shortAddress } from "../../utils/address.js";
 import { formatTokenWithUsd } from "../../utils/price.js";
 import type { BotContext, BotDependencies } from "../context.js";
@@ -13,6 +14,7 @@ export interface ActiveTrackingSummary {
   collections: SubscriptionView[];
   wallets: WalletSubscriptionView[];
   priceAlerts: NftPriceAlertView[];
+  saleAlerts?: CollectionSaleSubscriptionView[];
   freeMintAlertsEnabled: boolean;
 }
 
@@ -42,7 +44,8 @@ function groupedWallets(wallets: WalletSubscriptionView[]): Array<{ address: str
 
 export function formatActiveTracking(summary: ActiveTrackingSummary): string {
   const wallets = groupedWallets(summary.wallets);
-  const hasSpecificTracking = summary.collections.length > 0 || wallets.length > 0 || summary.priceAlerts.length > 0;
+  const saleAlerts = summary.saleAlerts ?? [];
+  const hasSpecificTracking = summary.collections.length > 0 || wallets.length > 0 || summary.priceAlerts.length > 0 || saleAlerts.length > 0;
   const lines = [
     "📋 YOUR ACTIVE TRACKING",
     "",
@@ -52,6 +55,7 @@ export function formatActiveTracking(summary: ActiveTrackingSummary): string {
     `📡 Collections: ${summary.collections.length}`,
     `👛 Wallets: ${wallets.length} address${wallets.length === 1 ? "" : "es"} • ${summary.wallets.length} network monitor${summary.wallets.length === 1 ? "" : "s"}`,
     `🎯 Floor targets: ${summary.priceAlerts.length}`,
+    `🛒 Sale alerts: ${saleAlerts.length}`,
     `🆓 Free-mint alerts: ${summary.freeMintAlertsEnabled ? "🟢 ON" : "⚪ OFF"}`,
   ];
 
@@ -95,6 +99,14 @@ export function formatActiveTracking(summary: ActiveTrackingSummary): string {
     lines.push(...remainingLine(summary.priceAlerts.length));
   }
 
+  if (saleAlerts.length) {
+    lines.push("", "🛒 COLLECTION SALE ALERTS");
+    for (const alert of saleAlerts.slice(0, MAX_ITEMS_PER_SECTION)) {
+      lines.push(`• ${compactName(alert.name)} — ${chainLabel(alert.chainId, alert.chain)}`);
+    }
+    lines.push(...remainingLine(saleAlerts.length));
+  }
+
   lines.push(
     "",
     "Group collection alerts are managed inside each Telegram group by its admins.",
@@ -108,7 +120,7 @@ export function activeTrackingKeyboard(): InlineKeyboard {
     .text("👛 Wallets", "menu:wallets")
     .row()
     .text("🎯 Floor Alerts", "menu:price-alerts")
-    .text("⚙️ Alert Settings", "menu:settings")
+    .text("🛒 Sale Alerts", "menu:sale-alerts")
     .row()
     .text("➕ Add Collection", "menu:track")
     .text("➕ Add Wallet", "menu:wallet-track")
@@ -125,15 +137,17 @@ async function loadActiveTracking(
 ): Promise<ActiveTrackingSummary | null> {
   if (!ctx.from) return null;
   const user = await dependencies.repositories.users.ensure(ctx.from.id);
-  const [collections, wallets, priceAlerts] = await Promise.all([
+  const [collections, wallets, priceAlerts, saleAlerts] = await Promise.all([
     dependencies.repositories.subscriptions.listActive(user.id),
     dependencies.repositories.walletSubscriptions.listActive(user.id),
     dependencies.repositories.nftPriceAlerts.listActive(user.id),
+    dependencies.repositories.collectionSaleSubscriptions.listActive(user.id),
   ]);
   return {
     collections,
     wallets,
     priceAlerts,
+    saleAlerts,
     freeMintAlertsEnabled: user.free_mint_alerts_enabled,
   };
 }
