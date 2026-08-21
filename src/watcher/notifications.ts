@@ -14,7 +14,6 @@ import type {
   UpcomingMintStage,
 } from "../opensea/upcomingDrops.js";
 import type { NftPriceAlertRecipient } from "../database/repositories/nftPriceAlerts.js";
-import type { CollectionSaleNotificationRecipient } from "../database/repositories/collectionSaleSubscriptions.js";
 import { formatTokenWithUsd } from "../utils/price.js";
 import type { TelegramOutboxRepository } from "../database/repositories/telegramOutbox.js";
 import { getOpenSeaTokenDetails } from "../opensea/upcomingDrops.js";
@@ -54,24 +53,6 @@ export interface MarketplaceNotification {
   quantity: bigint;
   standard: "ERC-721" | "ERC-1155";
   counterparty: Address | null;
-  nftName?: string;
-  openSeaUrl?: string;
-}
-
-export interface CollectionSaleNotification {
-  chainId: number;
-  collectionName: string;
-  collectionSlug: string;
-  hash: Hash;
-  marketplace: string;
-  nftContract: Address;
-  tokenId: bigint;
-  quantity: bigint;
-  standard: "ERC-721" | "ERC-1155";
-  seller: Address;
-  buyer: Address;
-  paymentToken: Address | null;
-  paymentAmount: bigint | null;
   nftName?: string;
   openSeaUrl?: string;
 }
@@ -262,35 +243,6 @@ export function formatMarketplaceAlert(activity: MarketplaceNotification, env: A
   ].join("\n");
 }
 
-export function formatCollectionSaleAlert(
-  activity: CollectionSaleNotification,
-  env: AppEnv,
-  salePrice: string | null,
-): string {
-  const chain = getChainById(activity.chainId, env);
-  const openSeaChain = chain.openSeaIdentifiers[0] ?? chain.key;
-  const nftName = safeDisplayText(activity.nftName, 300, `NFT #${activity.tokenId}`);
-  const openSeaUrl = activity.openSeaUrl ?? openSeaAssetUrl(openSeaChain, activity.nftContract, activity.tokenId);
-  return [
-    "🛒 COLLECTION SALE ALERT",
-    "",
-    "Action: 🔴 SELL",
-    `Collection: ${safeDisplayText(activity.collectionName, 300, activity.collectionSlug)}`,
-    `Marketplace protocol: ${activity.marketplace}`,
-    `Chain: ${chain.name}`,
-    "",
-    `Seller:\n${activity.seller}`,
-    `Buyer:\n${activity.buyer}`,
-    `NFT name: ${nftName}`,
-    `Link: ${openSeaUrl}`,
-    ...(activity.quantity > 1n ? [`Quantity: ${activity.quantity}`] : []),
-    ...(salePrice ? [`Sale price: ${salePrice}`] : []),
-    "",
-    `Transaction:\n${activity.hash}`,
-    `${chain.explorerUrl}/tx/${activity.hash}`,
-  ].join("\n");
-}
-
 export class NotificationService {
   private readonly api: Api;
   private readonly nativeUsdQuoteCache = new Map<string, { expiresAt: number; rate: string | null }>();
@@ -385,78 +337,6 @@ export class NotificationService {
       ].join(":"),
       telegramId: recipient.telegramId,
       messageText: formatMarketplaceAlert(enriched, this.env),
-    })));
-  }
-
-  async sendCollectionSale(
-    recipients: CollectionSaleNotificationRecipient[],
-    activity: CollectionSaleNotification,
-  ): Promise<void> {
-    if (!this.outbox) throw new Error("Telegram outbox is required for collection sale notifications");
-    const unique = new Map(recipients.map((recipient) => [recipient.telegramId, recipient]));
-    if (unique.size === 0) return;
-    const chain = getChainById(activity.chainId, this.env);
-    const openSeaChain = chain.openSeaIdentifiers[0] ?? chain.key;
-    let nft: OpenSeaNftSummary = {
-      name: `NFT #${activity.tokenId}`,
-      openSeaUrl: openSeaAssetUrl(openSeaChain, activity.nftContract, activity.tokenId),
-    };
-    try {
-      nft = await this.openSeaNftLookup(
-        this.env.OPENSEA_API_KEY,
-        openSeaChain,
-        activity.nftContract,
-        activity.tokenId,
-      ) ?? nft;
-    } catch (error) {
-      logger.warn(
-        {
-          err: error,
-          chainId: activity.chainId,
-          nftContract: activity.nftContract,
-          tokenId: activity.tokenId.toString(),
-        },
-        "OpenSea NFT metadata unavailable for collection sale alert",
-      );
-    }
-
-    let salePrice: string | null = null;
-    if (activity.paymentAmount !== null) {
-      if (!activity.paymentToken) {
-        const usdRate = await this.nativeUsdRate(chain);
-        salePrice = formatTokenWithUsd(formatEther(activity.paymentAmount), chain.nativeSymbol, usdRate);
-      } else {
-        try {
-          const token = await getOpenSeaTokenDetails(
-            this.env.OPENSEA_API_KEY,
-            openSeaChain,
-            activity.paymentToken,
-          );
-          if (token) {
-            const amount = formatUnits(activity.paymentAmount, token.decimals);
-            const usdRate = token.usdPrice === null ? null : token.usdPrice;
-            salePrice = formatTokenWithUsd(amount, token.symbol, usdRate);
-          }
-        } catch (error) {
-          logger.warn({ err: error, chainId: activity.chainId, paymentToken: activity.paymentToken }, "sale payment token metadata unavailable");
-        }
-        salePrice ??= `ERC-20 ${activity.paymentToken.slice(0, 6)}…${activity.paymentToken.slice(-4)} (${activity.paymentAmount.toString()} base units)`;
-      }
-    }
-
-    const enriched = { ...activity, nftName: nft.name, openSeaUrl: nft.openSeaUrl };
-    await this.outbox.enqueue([...unique.values()].map((recipient) => ({
-      eventKey: [
-        "collection-sale",
-        activity.chainId,
-        activity.hash.toLowerCase(),
-        recipient.subscriptionId,
-        activity.nftContract.toLowerCase(),
-        activity.tokenId,
-        activity.collectionSlug,
-      ].join(":"),
-      telegramId: recipient.telegramId,
-      messageText: formatCollectionSaleAlert(enriched, this.env, salePrice),
     })));
   }
 

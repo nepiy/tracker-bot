@@ -8,7 +8,7 @@ import { formatWalletSubscriptions, WALLET_PROMPT } from "../src/bot/commands/wa
 import { ADD_TO_GROUP_TEXT, formatGroupSubscriptions, groupInstallUrl } from "../src/bot/commands/group.js";
 import { isAdminStatus } from "../src/bot/groupAdmin.js";
 import { formatSettings } from "../src/bot/commands/settings.js";
-import { formatCollectionSaleAlert, formatFreeMintAlert, formatMintPriceChangeAlert } from "../src/watcher/notifications.js";
+import { formatFreeMintAlert, formatMintPriceChangeAlert } from "../src/watcher/notifications.js";
 import { activeTrackingKeyboard, formatActiveTracking } from "../src/bot/commands/activeTracking.js";
 import {
   FREE_MINTS_MENU_TEXT,
@@ -50,7 +50,7 @@ describe("Telegram collection dashboard", () => {
       ["📋 Active Tracking"],
       ["🔎 Research NFT", "🎯 Floor Alerts"],
       ["➕ Add Collection", "📡 Tracking Collection"],
-      ["🛒 Sale Alerts", "⚡ Recent Activity"],
+      ["⚡ Recent Activity"],
       ["👛 Add Wallet", "🗂 Tracking Wallet"],
       ["🆓 Free Mints"],
       ["⚙️ Alert Settings", "🛑 Stop Collection"],
@@ -148,7 +148,7 @@ describe("Telegram collection dashboard", () => {
     })).toContain("Nothing is active yet");
     expect(activeTrackingKeyboard().inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
       ["📡 Collections", "👛 Wallets"],
-      ["🎯 Floor Alerts", "🛒 Sale Alerts"],
+      ["🎯 Floor Alerts"],
       ["➕ Add Collection", "➕ Add Wallet"],
       ["⚡ Recent Activity"],
       ["🔄 Refresh", "🏠 Main Menu"],
@@ -226,42 +226,6 @@ describe("Telegram collection dashboard", () => {
     expect(text).toContain("1 active");
     expect(text).toContain("0x57ff...004f");
     expect(text).toContain("Robinhood Chain • 🟢 Active");
-  });
-
-  it("formats detailed collection sale alerts", () => {
-    const text = formatCollectionSaleAlert({
-      chainId: 4663,
-      collectionName: subscription.name,
-      collectionSlug: subscription.slug,
-      hash: `0x${"a".repeat(64)}`,
-      marketplace: "Seaport",
-      nftContract: subscription.contractAddress as `0x${string}`,
-      tokenId: 42n,
-      quantity: 1n,
-      standard: "ERC-721",
-      seller: subscription.walletAddress! as `0x${string}`,
-      buyer: "0x1111111111111111111111111111111111111111",
-      paymentToken: null,
-      paymentAmount: 2917000000000000n,
-    }, {
-      TELEGRAM_BOT_TOKEN: "token",
-      OPENSEA_API_KEY: "key",
-      SUPABASE_URL: "https://example.supabase.co",
-      SUPABASE_SERVICE_ROLE_KEY: "service",
-      ETHEREUM_RPC_URL: "https://example.com/eth",
-      ROBINHOOD_RPC_URL: "https://example.com/rh",
-      BASE_RPC_URL: "https://example.com/base",
-      ETHERSCAN_API_KEY: "etherscan",
-      BLOCKSCOUT_API_KEY: "blockscout",
-      MONITORING_CHAINS_JSON: "[]",
-      CEX_ADDRESSES_JSON: "[]",
-    } as never, "0.002917 ETH (≈ $5.83)");
-    expect(text).toContain("COLLECTION SALE ALERT");
-    expect(text).toContain("Marketplace protocol: Seaport");
-    expect(text).toContain("Seller:");
-    expect(text).toContain("Buyer:");
-    expect(text).toContain("Sale price: 0.002917 ETH (≈ $5.83)");
-    expect(text).toContain("NFT name: NFT #42");
   });
 
   it("formats group subscriptions and recognizes only Telegram admin roles", () => {

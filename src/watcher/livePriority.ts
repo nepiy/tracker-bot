@@ -8,7 +8,7 @@ import type { ChainConfig } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 import { NotificationService } from "./notifications.js";
 import { BlockscoutMarketplaceReconciler } from "./blockscoutMarketplace.js";
-import { processCollectionSaleRange, processMarketplaceRange } from "./marketplace.js";
+import { processMarketplaceRange } from "./marketplace.js";
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -31,17 +31,6 @@ export function marketplaceWatchFingerprint(
   return wallets
     .flatMap((wallet) => wallet.recipients.map((recipient) => (
       `${wallet.id}:${wallet.address.toLowerCase()}:${recipient.subscriptionId}:${recipient.telegramId}`
-    )))
-    .sort()
-    .join("|");
-}
-
-export function collectionSaleWatchFingerprint(
-  collections: Awaited<ReturnType<Repositories["collectionSaleSubscriptions"]["listActiveWatched"]>>,
-): string {
-  return collections
-    .flatMap((collection) => collection.recipients.map((recipient) => (
-      `${collection.id}:${collection.contractAddress.toLowerCase()}:${recipient.subscriptionId}:${recipient.telegramId}`
     )))
     .sort()
     .join("|");
@@ -70,7 +59,6 @@ export class LivePriorityWatcher {
   private readonly blockscoutReconciler: BlockscoutMarketplaceReconciler;
   private readonly lastProcessed = new Map<number, bigint>();
   private readonly marketplaceFingerprints = new Map<number, string>();
-  private readonly collectionSaleFingerprints = new Map<number, string>();
   private readonly lastReconciledAt = new Map<number, number>();
 
   constructor(
@@ -86,21 +74,15 @@ export class LivePriorityWatcher {
   }
 
   async pollChainOnce(chain: ChainConfig, client: ChainClient): Promise<LiveScanRange | null> {
-    const [head, marketplaceWatched, collectionSaleWatched] = await Promise.all([
+    const [head, marketplaceWatched] = await Promise.all([
       withRetry(() => client.getBlockNumber(), { attempts: 3 }),
       this.repositories.walletSubscriptions.listActiveWatched(chain.chainId),
-      this.repositories.collectionSaleSubscriptions
-        ? this.repositories.collectionSaleSubscriptions.listActiveWatched(chain.chainId)
-        : Promise.resolve([]),
     ]);
     const confirmations = BigInt(this.env.WATCHER_CONFIRMATIONS);
     const safeHead = head > confirmations ? head - confirmations : 0n;
     const fingerprint = marketplaceWatchFingerprint(marketplaceWatched);
-    const collectionSaleFingerprint = collectionSaleWatchFingerprint(collectionSaleWatched);
     const previousFingerprint = this.marketplaceFingerprints.get(chain.chainId);
-    const previousCollectionSaleFingerprint = this.collectionSaleFingerprints.get(chain.chainId);
-    const subscriptionsChanged = (previousFingerprint !== undefined && previousFingerprint !== fingerprint)
-      || (previousCollectionSaleFingerprint !== undefined && previousCollectionSaleFingerprint !== collectionSaleFingerprint);
+    const subscriptionsChanged = previousFingerprint !== undefined && previousFingerprint !== fingerprint;
     const now = Date.now();
     const previousReconciliation = this.lastReconciledAt.get(chain.chainId);
     const reconciliationDue = previousReconciliation !== undefined
@@ -115,7 +97,6 @@ export class LivePriorityWatcher {
     );
     if (!range) {
       this.marketplaceFingerprints.set(chain.chainId, fingerprint);
-      this.collectionSaleFingerprints.set(chain.chainId, collectionSaleFingerprint);
       if (previousReconciliation === undefined || reconciliationDue) {
         this.lastReconciledAt.set(chain.chainId, now);
       }
@@ -138,25 +119,8 @@ export class LivePriorityWatcher {
         this.env.WATCHER_MARKETPLACE_LOG_QUERY_INTERVAL_MS,
       );
     }
-    if (collectionSaleWatched.length) {
-      await processCollectionSaleRange(
-        chain.chainId,
-        range.fromBlock,
-        range.toBlock,
-        collectionSaleWatched,
-        client,
-        this.repositories,
-        this.notifications,
-        async (blockNumber) => {
-          const block = await withRetry(() => client.getBlock({ blockNumber }), { attempts: 4 });
-          return block.timestamp;
-        },
-        this.env.WATCHER_MARKETPLACE_LOG_QUERY_INTERVAL_MS,
-      );
-    }
     this.lastProcessed.set(chain.chainId, range.toBlock);
     this.marketplaceFingerprints.set(chain.chainId, fingerprint);
-    this.collectionSaleFingerprints.set(chain.chainId, collectionSaleFingerprint);
     if (previousReconciliation === undefined || reconciliationDue) {
       this.lastReconciledAt.set(chain.chainId, now);
     }

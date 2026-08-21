@@ -14,12 +14,10 @@ import type { MarketplaceWatchedWallet } from "../src/database/repositories/wall
 import {
   decodeNftTransfers,
   ERC721_TRANSFER_EVENT,
-  processCollectionSaleRange,
   processMarketplaceBlock,
   processMarketplaceRange,
   SEAPORT_ADDRESSES,
 } from "../src/watcher/marketplace.js";
-import type { CollectionSaleWatchedCollection } from "../src/database/repositories/collectionSaleSubscriptions.js";
 import type { NotificationService } from "../src/watcher/notifications.js";
 
 const wallet = "0x0000000000000000000000000000000000000001" as Address;
@@ -368,54 +366,4 @@ describe("marketplace NFT activity", () => {
     });
   });
 
-  it("claims and notifies a collection sale with seller, buyer, and payment", async () => {
-    const claim = vi.fn(async () => true);
-    const sendCollectionSale = vi.fn(async () => undefined);
-    const client = {
-      getLogs: async (request: { event?: { name: string } }) => (
-        request.event === ERC721_TRANSFER_EVENT ? [erc721TransferLog()] : []
-      ),
-      getTransactionReceipt: async () => ({
-        status: "success",
-        logs: [seaportSettlementLog(), erc721TransferLog()],
-      }),
-      getTransaction: async () => ({
-        from: wallet,
-        to: SEAPORT_ADDRESSES[0],
-        value: 2_917_000_000_000_000n,
-      }),
-    } as unknown as ChainClient;
-    const watched: CollectionSaleWatchedCollection[] = [{
-      id: "collection-id",
-      slug: "fishbroker",
-      name: "FishBroker",
-      chainId: 4663,
-      contractAddress: collection,
-      recipients: [{ telegramId: 123, subscriptionId: "sale-subscription-id" }],
-    }];
-
-    await processCollectionSaleRange(
-      4663,
-      100n,
-      100n,
-      watched,
-      client,
-      { collectionSaleActivity: { claim } } as unknown as Repositories,
-      { sendCollectionSale } as unknown as NotificationService,
-      async () => 1_700_000_000n,
-    );
-
-    expect(claim).toHaveBeenCalledWith(expect.objectContaining({
-      collectionId: "collection-id",
-      marketplace: "Seaport",
-      seller,
-      buyer: wallet,
-      paymentToken: null,
-      paymentAmount: 2_917_000_000_000_000n,
-    }));
-    expect(sendCollectionSale).toHaveBeenCalledWith(
-      watched[0]!.recipients,
-      expect.objectContaining({ collectionName: "FishBroker", tokenId: 42n }),
-    );
-  });
 });
